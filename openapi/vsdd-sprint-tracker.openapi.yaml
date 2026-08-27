@@ -1,0 +1,1638 @@
+openapi: 3.1.0
+info:
+  title: VSDD Sprint Tracker API
+  version: 1.0.0
+  description: >-
+    REST/JSON contract for the VSDD Sprint Tracker (design.md §6). Component
+    schemas mirror the implemented frontend TypeScript domain types and Zod
+    schemas (src/domain/*, src/api/repository.ts) so the server and the
+    replaceable mock repository share one contract.
+
+
+    Persistence is document-oriented and vendor-neutral (design.md §4a): each
+    team/checkpoint update is a single versioned JSON document with a stable
+    query envelope plus a flexible, schema-versioned payload. Optimistic
+    concurrency uses `revision` as an ETag; a stale revision on write returns
+    409 DRAFT_REVISION_CONFLICT and overwrites nothing.
+
+
+    This document defines the contract only — no server logic is implied
+    (Phase 7.3+ implements the endpoints).
+  contact:
+    name: VSDD Sprint Tracker
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: /api/v1
+    description: Version 1 API base path
+
+# Every request is authenticated and authorised server-side against
+# programme/team assignments (design.md §13). Applied globally; individual
+# operations may narrow scope in later phases.
+security:
+  - bearerAuth: []
+
+tags:
+  - name: identity
+    description: Authenticated user identity and permissions
+  - name: hierarchy
+    description: Programme hierarchy and reporting cycle (read)
+  - name: updates
+    description: Team update draft read/write, versions and audit
+  - name: leadership
+    description: Leadership View projection, decisions and export
+
+paths:
+  /me:
+    get:
+      operationId: getCurrentUser
+      tags: [identity]
+      summary: Current authenticated user, roles and team assignments
+      responses:
+        '200':
+          description: The current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /programmes/{programmeId}/hierarchy:
+    get:
+      operationId: getHierarchy
+      tags: [hierarchy]
+      summary: Programme -> Stream -> Team hierarchy
+      parameters:
+        - $ref: '#/components/parameters/ProgrammeId'
+      responses:
+        '200':
+          description: Resolved hierarchy tree
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HierarchyTree'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /programmes/{programmeId}/sprints:
+    get:
+      operationId: getSprints
+      tags: [hierarchy]
+      summary: Sprints for a programme
+      parameters:
+        - $ref: '#/components/parameters/ProgrammeId'
+        - name: status
+          in: query
+          required: false
+          description: Filter by sprint status (e.g. `current` returns the active sprint).
+          schema:
+            type: string
+            enum: [current, planned, closed]
+      responses:
+        '200':
+          description: Sprints (optionally filtered by status)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Sprint'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /programmes/{programmeId}/reporting-summary:
+    get:
+      operationId: getReportingSummary
+      tags: [leadership]
+      summary: Filtered leadership projection plus programme summary counts
+      description: >-
+        Leadership View reads submitted Team Update data as a projection
+        (design.md §1). Filters update the tree and the programme counts
+        together.
+      parameters:
+        - $ref: '#/components/parameters/ProgrammeId'
+        - name: sprintId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: checkpointId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: streamId
+          in: query
+          required: false
+          description: Stream id, or `ALL` for no stream filter.
+          schema:
+            type: string
+        - name: rag
+          in: query
+          required: false
+          description: RAG filter across any of the three dimensions, or `ALL`.
+          schema:
+            type: string
+            enum: [ALL, GREEN, AMBER, RED]
+        - name: state
+          in: query
+          required: false
+          description: Update-state filter, or `ALL`.
+          schema:
+            type: string
+            enum: [ALL, MISSING, DRAFT, SUBMITTED, REOPENED, STALE]
+      responses:
+        '200':
+          description: Reporting summary and filtered snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportingSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /teams/{teamId}/updates/{checkpointId}:
+    get:
+      operationId: getTeamUpdate
+      tags: [updates]
+      summary: Current update document (draft aggregate) for a team + checkpoint
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/CheckpointId'
+      responses:
+        '200':
+          description: The current update document
+          headers:
+            ETag:
+              description: Current `revision` as an optimistic-concurrency token.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateDocument'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /teams/{teamId}/updates/{checkpointId}/versions:
+    get:
+      operationId: getUpdateVersions
+      tags: [updates]
+      summary: Immutable submitted versions for a team + checkpoint
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/CheckpointId'
+      responses:
+        '200':
+          description: Submitted versions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UpdateVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /updates/{versionId}:
+    get:
+      operationId: getUpdateVersion
+      tags: [updates]
+      summary: A single immutable submitted version
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+      responses:
+        '200':
+          description: The submitted version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /updates/{versionId}/audit:
+    get:
+      operationId: getUpdateAudit
+      tags: [updates]
+      summary: Append-only audit trail for a version/update entity
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+      responses:
+        '200':
+          description: Audit events, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEvent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /updates/{versionId}/compare/{compareVersionId}:
+    get:
+      operationId: compareUpdateVersions
+      tags: [updates]
+      summary: Field-by-field comparison of two immutable versions
+      description: >-
+        Produces a structured diff between two submitted versions of the same
+        update line (same team, sprint and checkpoint): for every field it
+        reports the previous and current value and whether it changed, plus the
+        added/removed/modified/unchanged exception lines (R14.3). The versions
+        are ordered by versionNumber, so `previous` is the earlier submission
+        regardless of the path order. Comparing versions from different teams or
+        checkpoints, or a version with itself, returns 400 VALIDATION_FAILED.
+        Neither version is mutated.
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+        - $ref: '#/components/parameters/CompareVersionId'
+      responses:
+        '200':
+          description: The structured field-level comparison
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionComparison'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /teams/{teamId}/drafts/{checkpointId}:
+    put:
+      operationId: saveDraft
+      tags: [updates]
+      summary: Save the mutable draft with an optimistic-concurrency revision
+      description: >-
+        Every PUT carries the client `revision`, the three RAG values and the
+        full payload. The response returns the new `revision`, `updatedAt` and
+        `updatedBy`. If the supplied revision is stale, the server returns
+        409 DRAFT_REVISION_CONFLICT with server metadata and overwrites nothing.
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/CheckpointId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftUpdateRequest'
+      responses:
+        '200':
+          description: Draft saved; returns the updated document
+          headers:
+            ETag:
+              description: New `revision` as an optimistic-concurrency token.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateDocument'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/RevisionConflict'
+
+  /teams/{teamId}/drafts/{checkpointId}/submit:
+    post:
+      operationId: submitUpdate
+      tags: [updates]
+      summary: Validate and submit a draft, creating an immutable version + audit event
+      description: >-
+        Submission runs the full cross-field validation (R4-R10), then
+        atomically creates an immutable UpdateVersion snapshot and an audit
+        event. A stale revision returns 409 and creates nothing.
+      parameters:
+        - $ref: '#/components/parameters/TeamId'
+        - $ref: '#/components/parameters/CheckpointId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftUpdateRequest'
+      responses:
+        '200':
+          description: Submitted; returns the updated document and the new version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/RevisionConflict'
+
+  /updates/{versionId}/reopen:
+    post:
+      operationId: reopenUpdate
+      tags: [updates]
+      summary: Authorised reopen of a submitted version with a mandatory reason
+      description: >-
+        Reopening copies the latest submitted version into a new editable draft
+        and records an audit reason. The prior submitted version remains
+        immutable and visible.
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReopenRequest'
+      responses:
+        '200':
+          description: A new editable draft derived from the reopened version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateDocument'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /updates/{versionId}/decisions:
+    post:
+      operationId: recordDecision
+      tags: [leadership]
+      summary: Record a leadership decision against a submitted version
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionRequest'
+      responses:
+        '201':
+          description: The recorded leadership decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadershipDecision'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      operationId: getDecisions
+      tags: [leadership]
+      summary: Leadership decisions recorded against a version
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+      responses:
+        '200':
+          description: Decisions for the version
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LeadershipDecision'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /programmes/{programmeId}/exports:
+    post:
+      operationId: createExport
+      tags: [leadership]
+      summary: Create a structured export of the filtered leadership snapshot
+      description: >-
+        The export uses identical filter semantics to the Leadership View and
+        is scoped to prevent programme-data enumeration (design.md §13).
+      parameters:
+        - $ref: '#/components/parameters/ProgrammeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportRequest'
+      responses:
+        '200':
+          description: The export snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportSnapshot'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Enterprise OIDC access token. The application receives a stable subject
+        id and group/role claims (design.md §2, §13). An approved same-site
+        secure-cookie session is an equivalent accepted pattern.
+
+  parameters:
+    ProgrammeId:
+      name: programmeId
+      in: path
+      required: true
+      description: Programme identifier (e.g. `vsdd`).
+      schema:
+        type: string
+    TeamId:
+      name: teamId
+      in: path
+      required: true
+      schema:
+        type: string
+    CheckpointId:
+      name: checkpointId
+      in: path
+      required: true
+      description: Reporting checkpoint id (Week 1 / Week 2 of a sprint).
+      schema:
+        type: string
+    VersionId:
+      name: versionId
+      in: path
+      required: true
+      schema:
+        type: string
+    CompareVersionId:
+      name: compareVersionId
+      in: path
+      required: true
+      description: The other submitted version id to compare against (R14.3).
+      schema:
+        type: string
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: Authenticated but not authorised for this programme/team
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: PERMISSION_DENIED
+              message: You do not have permission to edit this team update.
+              correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
+              fieldErrors: []
+    NotFound:
+      description: The requested resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: NOT_FOUND
+              message: The requested update could not be found.
+              correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
+              fieldErrors: []
+    ValidationError:
+      description: The request failed validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: Fix the highlighted fields and try again.
+              correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
+              fieldErrors:
+                - path: goals.business
+                  message: This field is required.
+    RevisionConflict:
+      description: >-
+        The draft changed after it was opened. The server returns its current
+        metadata and overwrites nothing (optimistic-concurrency conflict).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RevisionConflictEnvelope'
+          example:
+            error:
+              code: DRAFT_REVISION_CONFLICT
+              message: This draft changed after you opened it.
+              correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
+              fieldErrors: []
+            server:
+              revision: 13
+              updatedAt: '2026-08-26T09:20:00Z'
+              updatedBy: t.lead@ptsb.ie
+    Conflict:
+      description: >-
+        The requested lifecycle transition is not valid for the aggregate's
+        current state (e.g. reopening something that is not the current
+        SUBMITTED version, or a second reopen). The operation changes nothing.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: INVALID_STATE
+              message: >-
+                This is not the latest submitted version. Reopen the current
+                version instead.
+              correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
+              fieldErrors: []
+
+  schemas:
+    # ---------------------------------------------------------------------
+    # Enums and value objects (src/domain/update.ts)
+    # ---------------------------------------------------------------------
+    RagValue:
+      type: string
+      description: A single RAG dimension value.
+      enum: [GREEN, AMBER, RED]
+    RagStatuses:
+      type: object
+      description: Three independent RAG dimensions (requirements.md R4).
+      additionalProperties: false
+      required: [business, delivery, release]
+      properties:
+        business:
+          allOf: [{ $ref: '#/components/schemas/RagValue' }]
+          description: Business outcome confidence.
+        delivery:
+          allOf: [{ $ref: '#/components/schemas/RagValue' }]
+          description: Test delivery confidence.
+        release:
+          allOf: [{ $ref: '#/components/schemas/RagValue' }]
+          description: Release confidence.
+    UpdateState:
+      type: string
+      description: >-
+        Stored document state. `STALE` is NOT stored — it is derived in the
+        Leadership View. See LeadershipCellState.
+      enum: [MISSING, DRAFT, SUBMITTED, REOPENED]
+    LeadershipCellState:
+      type: string
+      description: Presentation state used by Leadership View cells (adds derived STALE).
+      enum: [MISSING, DRAFT, SUBMITTED, REOPENED, STALE]
+    ExceptionType:
+      type: string
+      enum: [RISK, ISSUE, BLOCKER]
+    ExceptionStatus:
+      type: string
+      enum: [OPEN, RESOLVED]
+    SprintStatus:
+      type: string
+      enum: [PLANNED, CURRENT, CLOSED]
+    CheckpointStatus:
+      type: string
+      enum: [UPCOMING, CURRENT, CLOSED]
+    Role:
+      type: string
+      enum: [CONTRIBUTOR, TEAM_LEAD, LEADERSHIP, ADMIN, AUDITOR]
+    AuditAction:
+      type: string
+      enum: [DRAFT_SAVED, SUBMITTED, REOPENED, DECISION_RECORDED, EXPORT_CREATED]
+    AuditEntityType:
+      type: string
+      enum: [UPDATE, VERSION, DECISION, EXPORT]
+
+    Count:
+      type: integer
+      description: A non-negative whole count.
+      minimum: 0
+
+    # ---------------------------------------------------------------------
+    # Update payload building blocks (src/domain/update.ts, schemas.ts)
+    # ---------------------------------------------------------------------
+    ExceptionItem:
+      type: object
+      description: A Risk, Issue or Blocker (kept distinct — requirements.md R9).
+      additionalProperties: false
+      required: [id, type, impact, owner, dueDate, decisionSupport, status]
+      properties:
+        id:
+          type: string
+          description: Stable identifier; never a post-persistence array index.
+        type:
+          $ref: '#/components/schemas/ExceptionType'
+        impact:
+          type: string
+          description: Business / release impact.
+          maxLength: 4000
+        owner:
+          type: string
+          maxLength: 1000
+        dueDate:
+          type: string
+          format: date
+        decisionSupport:
+          type: string
+          description: Decision / support needed.
+          maxLength: 4000
+        status:
+          $ref: '#/components/schemas/ExceptionStatus'
+        resolvedAt:
+          type: string
+          format: date-time
+          description: Required when status is RESOLVED.
+        resolutionNote:
+          type: string
+          maxLength: 4000
+          description: Required when status is RESOLVED.
+    GoalsAndCommitments:
+      type: object
+      description: The four required goals/commitments fields (requirements.md R5).
+      additionalProperties: false
+      required: [business, technicalTesting, sprintCommitment, nextWeekCommitment]
+      properties:
+        business:
+          type: string
+          description: Business goal. Required, non-whitespace; preserves line breaks.
+          maxLength: 4000
+        technicalTesting:
+          type: string
+          description: Technical / testing goal.
+          maxLength: 4000
+        sprintCommitment:
+          type: string
+          maxLength: 4000
+        nextWeekCommitment:
+          type: string
+          maxLength: 4000
+    QualityEvidence:
+      type: object
+      description: >-
+        Raw counts only. Execution and pass rates are always derived, never
+        stored as independently editable truth (R6.4).
+      additionalProperties: false
+      required: [planned, executed, passed, openCritical, blocked, automationPercent]
+      properties:
+        planned:
+          $ref: '#/components/schemas/Count'
+        executed:
+          $ref: '#/components/schemas/Count'
+        passed:
+          $ref: '#/components/schemas/Count'
+        openCritical:
+          $ref: '#/components/schemas/Count'
+        blocked:
+          $ref: '#/components/schemas/Count'
+        automationPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+    AiValue:
+      type: object
+      description: The four-step AI value sequence (requirements.md R8).
+      additionalProperties: false
+      required: [useCase, measurableBenefit, humanValidation, nextExperimentConstraint]
+      properties:
+        useCase:
+          type: string
+          maxLength: 1000
+        measurableBenefit:
+          type: string
+          maxLength: 1000
+        humanValidation:
+          type: string
+          maxLength: 1000
+        nextExperimentConstraint:
+          type: string
+          maxLength: 1000
+    UpdatePayload:
+      type: object
+      description: >-
+        Flexible, schema-versioned payload (design.md §4a). New optional
+        sections may be added without breaking older documents.
+      additionalProperties: false
+      required: [goals, qualityEvidence, achievements, aiValue, exceptions, leadershipAsk]
+      properties:
+        goals:
+          $ref: '#/components/schemas/GoalsAndCommitments'
+        qualityEvidence:
+          $ref: '#/components/schemas/QualityEvidence'
+        achievements:
+          type: string
+          maxLength: 4000
+        aiValue:
+          $ref: '#/components/schemas/AiValue'
+        exceptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExceptionItem'
+        leadershipAsk:
+          type: string
+          maxLength: 4000
+        statusRationale:
+          type: string
+          maxLength: 4000
+          description: Required only when a RAG is Amber/Red and no exception is present (R4.3).
+        metricsNote:
+          type: string
+          maxLength: 4000
+          description: Required only when a metric inconsistency is submitted anyway (R6.3).
+
+    # ---------------------------------------------------------------------
+    # Update documents (src/domain/update.ts)
+    # ---------------------------------------------------------------------
+    UpdateDocument:
+      type: object
+      description: The current mutable update aggregate (draft) for a team + checkpoint.
+      additionalProperties: false
+      required:
+        - id
+        - programmeId
+        - streamId
+        - teamId
+        - sprintId
+        - checkpointId
+        - state
+        - revision
+        - schemaVersion
+        - rag
+        - hasBlocker
+        - hasLeadershipAsk
+        - createdAt
+        - updatedAt
+        - updatedBy
+        - payload
+      properties:
+        id:
+          type: string
+          description: Deterministic aggregate key `${teamId}|${sprintId}|${checkpointId}`.
+        programmeId:
+          type: string
+        streamId:
+          type: string
+        teamId:
+          type: string
+        sprintId:
+          type: string
+        checkpointId:
+          type: string
+        state:
+          $ref: '#/components/schemas/UpdateState'
+        revision:
+          type: integer
+          minimum: 0
+          description: Optimistic-concurrency token (ETag).
+        schemaVersion:
+          type: integer
+          minimum: 1
+          description: Document contract version.
+        rag:
+          $ref: '#/components/schemas/RagStatuses'
+        hasBlocker:
+          type: boolean
+          description: Denormalised leadership filter flag.
+        hasLeadershipAsk:
+          type: boolean
+          description: Denormalised leadership filter flag.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+        payload:
+          $ref: '#/components/schemas/UpdatePayload'
+    UpdateVersion:
+      type: object
+      description: Immutable submitted snapshot (design.md §4).
+      additionalProperties: false
+      required:
+        - id
+        - teamId
+        - sprintId
+        - checkpointId
+        - versionNumber
+        - submittedBy
+        - submittedAt
+        - schemaVersion
+        - rag
+        - hasBlocker
+        - hasLeadershipAsk
+        - payload
+      properties:
+        id:
+          type: string
+        teamId:
+          type: string
+        sprintId:
+          type: string
+        checkpointId:
+          type: string
+        versionNumber:
+          type: integer
+          minimum: 1
+        submittedBy:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+        schemaVersion:
+          type: integer
+          minimum: 1
+        rag:
+          $ref: '#/components/schemas/RagStatuses'
+        hasBlocker:
+          type: boolean
+        hasLeadershipAsk:
+          type: boolean
+        payload:
+          $ref: '#/components/schemas/UpdatePayload'
+    AuditEvent:
+      type: object
+      description: >-
+        Append-only audit document (design.md §4a). Every lifecycle event for
+        one update (submit, reopen, resubmit, leadership decision) shares the
+        same `aggregateId`, so `GET /updates/{versionId}/audit` returns one
+        unified, newest-first history for the update regardless of each event's
+        `entityId`.
+      additionalProperties: false
+      required:
+        - id
+        - programmeId
+        - aggregateId
+        - entityType
+        - entityId
+        - action
+        - actorSubject
+        - timestamp
+        - correlationId
+      properties:
+        id:
+          type: string
+        programmeId:
+          type: string
+        aggregateId:
+          type: string
+          description: >-
+            Stable update-aggregate key `${teamId}|${sprintId}|${checkpointId}`
+            shared across an update's whole lifecycle. For events not tied to an
+            update aggregate (e.g. EXPORT_CREATED) this carries the programme id.
+        entityType:
+          $ref: '#/components/schemas/AuditEntityType'
+        entityId:
+          type: string
+        action:
+          $ref: '#/components/schemas/AuditAction'
+        actorSubject:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        previousVersion:
+          type: integer
+          minimum: 1
+        newVersion:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+        filterSummary:
+          type: string
+          description: >-
+            Short, non-sensitive request-context summary for an event (e.g. the
+            export filter selection). Never contains user-authored update
+            content — only stable ids / enum selections.
+        correlationId:
+          type: string
+    LeadershipDecision:
+      type: object
+      additionalProperties: false
+      required: [id, updateVersionId, decision, ownerSubject, status, createdAt]
+      properties:
+        id:
+          type: string
+        updateVersionId:
+          type: string
+        decision:
+          type: string
+        ownerSubject:
+          type: string
+        dueDate:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [OPEN, CLOSED]
+        createdAt:
+          type: string
+          format: date-time
+
+    # ---------------------------------------------------------------------
+    # Version comparison (server/src/domain/versionComparison.ts, R14.3)
+    # ---------------------------------------------------------------------
+    ComparableValue:
+      description: A single comparable scalar value; absent/empty normalises to null.
+      type: [string, number, 'null']
+    FieldComparison:
+      type: object
+      description: The comparison outcome for one field (previous vs current).
+      additionalProperties: false
+      required: [path, label, previous, current, changed]
+      properties:
+        path:
+          type: string
+          description: Stable dotted path, e.g. `rag.business`, `qualityEvidence.planned`.
+        label:
+          type: string
+          description: Human-readable field label.
+        previous:
+          $ref: '#/components/schemas/ComparableValue'
+        current:
+          $ref: '#/components/schemas/ComparableValue'
+        changed:
+          type: boolean
+    ExceptionChangeType:
+      type: string
+      description: How an exception line changed between the two versions.
+      enum: [ADDED, REMOVED, MODIFIED, UNCHANGED]
+    ExceptionComparison:
+      type: object
+      description: The comparison outcome for one exception, matched by its id.
+      additionalProperties: false
+      required: [id, changeType, fields]
+      properties:
+        id:
+          type: string
+        changeType:
+          $ref: '#/components/schemas/ExceptionChangeType'
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldComparison'
+    VersionRef:
+      type: object
+      description: A lightweight reference to one side of a comparison.
+      additionalProperties: false
+      required: [versionId, versionNumber, submittedBy, submittedAt]
+      properties:
+        versionId:
+          type: string
+        versionNumber:
+          type: integer
+          minimum: 1
+        submittedBy:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+    VersionComparison:
+      type: object
+      description: Structured field-level diff between two immutable versions (R14.3).
+      additionalProperties: false
+      required: [previous, current, fields, exceptions, changedPaths, hasChanges]
+      properties:
+        previous:
+          allOf: [{ $ref: '#/components/schemas/VersionRef' }]
+          description: The earlier version (lower versionNumber).
+        current:
+          allOf: [{ $ref: '#/components/schemas/VersionRef' }]
+          description: The later version (higher versionNumber).
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldComparison'
+        exceptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExceptionComparison'
+        changedPaths:
+          type: array
+          items:
+            type: string
+        hasChanges:
+          type: boolean
+
+    # ---------------------------------------------------------------------
+    # Hierarchy (src/domain/hierarchy.ts)
+    # ---------------------------------------------------------------------
+    Programme:
+      type: object
+      additionalProperties: false
+      required: [id, name, active]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        active:
+          type: boolean
+    Stream:
+      type: object
+      additionalProperties: false
+      required: [id, programmeId, name, sortOrder, active]
+      properties:
+        id:
+          type: string
+        programmeId:
+          type: string
+        name:
+          type: string
+        sortOrder:
+          type: integer
+        active:
+          type: boolean
+    Team:
+      type: object
+      additionalProperties: false
+      required: [id, streamId, name, sortOrder, active]
+      properties:
+        id:
+          type: string
+        streamId:
+          type: string
+        name:
+          type: string
+        sortOrder:
+          type: integer
+        active:
+          type: boolean
+        archivedAt:
+          type: string
+          format: date-time
+    Sprint:
+      type: object
+      additionalProperties: false
+      required: [id, programmeId, label, startDate, endDate, status]
+      properties:
+        id:
+          type: string
+        programmeId:
+          type: string
+        label:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        status:
+          $ref: '#/components/schemas/SprintStatus'
+    ReportingCheckpoint:
+      type: object
+      additionalProperties: false
+      required: [id, sprintId, weekNumber, opensAt, dueAt, closesAt, status]
+      properties:
+        id:
+          type: string
+        sprintId:
+          type: string
+        weekNumber:
+          type: integer
+          enum: [1, 2]
+        opensAt:
+          type: string
+          format: date-time
+        dueAt:
+          type: string
+          format: date-time
+        closesAt:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/CheckpointStatus'
+    HierarchyTree:
+      type: object
+      description: Resolved hierarchy tree returned for Leadership View.
+      additionalProperties: false
+      required: [programme, streams]
+      properties:
+        programme:
+          $ref: '#/components/schemas/Programme'
+        streams:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [stream, teams]
+            properties:
+              stream:
+                $ref: '#/components/schemas/Stream'
+              teams:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Team'
+
+    # ---------------------------------------------------------------------
+    # Identity (src/api/repository.ts CurrentUser)
+    # ---------------------------------------------------------------------
+    CurrentUser:
+      type: object
+      additionalProperties: false
+      required:
+        - subject
+        - displayName
+        - initials
+        - roleLabel
+        - roles
+        - assignedTeamIds
+        - canViewAll
+      properties:
+        subject:
+          type: string
+          description: Stable OIDC subject id.
+        displayName:
+          type: string
+        initials:
+          type: string
+        roleLabel:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+        assignedTeamIds:
+          type: array
+          description: Teams the user may edit/submit.
+          items:
+            type: string
+        canViewAll:
+          type: boolean
+          description: Whether the user can view the whole programme in Leadership View.
+
+    # ---------------------------------------------------------------------
+    # Leadership projection (src/domain/leadership.ts)
+    # ---------------------------------------------------------------------
+    LeadershipFilters:
+      type: object
+      additionalProperties: false
+      required: [streamId, rag, state]
+      properties:
+        streamId:
+          type: string
+          description: A stream id, or `ALL`.
+        rag:
+          type: string
+          enum: [ALL, GREEN, AMBER, RED]
+        state:
+          type: string
+          enum: [ALL, MISSING, DRAFT, SUBMITTED, REOPENED, STALE]
+    ResolvedUpdate:
+      type: object
+      description: >-
+        Update content resolved for a team + checkpoint, including the derived
+        STALE fallback. `rag`/`payload` are null when there is no current
+        evidence (Missing) — never a false Green.
+      additionalProperties: false
+      required:
+        - cellState
+        - rag
+        - hasBlocker
+        - hasLeadershipAsk
+        - payload
+        - sourceCheckpointId
+        - sourceWeekNumber
+        - isStale
+        - isSubmittedEvidence
+      properties:
+        cellState:
+          $ref: '#/components/schemas/LeadershipCellState'
+        rag:
+          oneOf:
+            - $ref: '#/components/schemas/RagStatuses'
+            - type: 'null'
+        hasBlocker:
+          type: boolean
+        hasLeadershipAsk:
+          type: boolean
+        payload:
+          oneOf:
+            - $ref: '#/components/schemas/UpdatePayload'
+            - type: 'null'
+        sourceCheckpointId:
+          type: [string, 'null']
+        sourceWeekNumber:
+          type: [integer, 'null']
+          enum: [1, 2, null]
+        submittedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        isStale:
+          type: boolean
+        isSubmittedEvidence:
+          type: boolean
+          description: True when the content is a submitted, immutable version.
+    LeadershipTeamCell:
+      type: object
+      additionalProperties: false
+      required: [team, streamId, resolved]
+      properties:
+        team:
+          $ref: '#/components/schemas/Team'
+        streamId:
+          type: string
+        resolved:
+          $ref: '#/components/schemas/ResolvedUpdate'
+    LeadershipStreamGroup:
+      type: object
+      additionalProperties: false
+      required: [stream, teams]
+      properties:
+        stream:
+          $ref: '#/components/schemas/Stream'
+        teams:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeadershipTeamCell'
+    LeadershipSnapshot:
+      type: object
+      additionalProperties: false
+      required: [programme, sprint, checkpoint, streams]
+      properties:
+        programme:
+          $ref: '#/components/schemas/Programme'
+        sprint:
+          $ref: '#/components/schemas/Sprint'
+        checkpoint:
+          $ref: '#/components/schemas/ReportingCheckpoint'
+        streams:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeadershipStreamGroup'
+    ProgrammeSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - teamCount
+        - submittedCount
+        - draftOrMissingCount
+        - leadershipAskCount
+        - reportingPeriodLabel
+      properties:
+        teamCount:
+          type: integer
+          minimum: 0
+        submittedCount:
+          type: integer
+          minimum: 0
+        draftOrMissingCount:
+          type: integer
+          minimum: 0
+        leadershipAskCount:
+          type: integer
+          minimum: 0
+        reportingPeriodLabel:
+          type: string
+    ReportingSummary:
+      type: object
+      description: Programme summary counts plus the filtered leadership snapshot.
+      additionalProperties: false
+      required: [summary, snapshot, filters]
+      properties:
+        summary:
+          $ref: '#/components/schemas/ProgrammeSummary'
+        snapshot:
+          $ref: '#/components/schemas/LeadershipSnapshot'
+        filters:
+          $ref: '#/components/schemas/LeadershipFilters'
+
+    # ---------------------------------------------------------------------
+    # Request bodies (design.md §6, src/api/repository.ts)
+    # ---------------------------------------------------------------------
+    DraftUpdateRequest:
+      type: object
+      description: >-
+        The draft update contract carried by every PUT and submit (design.md §6).
+      additionalProperties: false
+      required: [revision, rag, goals, qualityEvidence, achievements, aiValue, exceptions, leadershipAsk]
+      properties:
+        revision:
+          type: integer
+          minimum: 0
+          description: Optimistic-concurrency token the client last read.
+        rag:
+          $ref: '#/components/schemas/RagStatuses'
+        goals:
+          $ref: '#/components/schemas/GoalsAndCommitments'
+        qualityEvidence:
+          $ref: '#/components/schemas/QualityEvidence'
+        achievements:
+          type: string
+          maxLength: 4000
+        aiValue:
+          $ref: '#/components/schemas/AiValue'
+        exceptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExceptionItem'
+        leadershipAsk:
+          type: string
+          maxLength: 4000
+        statusRationale:
+          type: string
+          maxLength: 4000
+        metricsNote:
+          type: string
+          maxLength: 4000
+    SubmitResult:
+      type: object
+      additionalProperties: false
+      required: [document, version]
+      properties:
+        document:
+          $ref: '#/components/schemas/UpdateDocument'
+        version:
+          $ref: '#/components/schemas/UpdateVersion'
+    ReopenRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          description: Mandatory audit reason for reopening.
+    DecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          minLength: 1
+        dueDate:
+          type: string
+          format: date
+    ExportRequest:
+      type: object
+      additionalProperties: false
+      required: [sprintId, checkpointId, filters]
+      properties:
+        sprintId:
+          type: string
+        checkpointId:
+          type: string
+        filters:
+          $ref: '#/components/schemas/LeadershipFilters'
+    ExportSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - programme
+        - sprintId
+        - checkpointId
+        - reportingPeriodLabel
+        - filters
+        - recordCount
+        - exportedAt
+        - records
+      properties:
+        programme:
+          type: string
+        sprintId:
+          type: string
+        checkpointId:
+          type: string
+        reportingPeriodLabel:
+          type: string
+        filters:
+          $ref: '#/components/schemas/LeadershipFilters'
+        recordCount:
+          type: integer
+          minimum: 0
+        exportedAt:
+          type: string
+          format: date-time
+        records:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            description: >-
+              One flattened team row. Draft / Missing / Stale rows are marked
+              visibly via `state` + `isSubmittedEvidence`, so a non-submitted
+              row can never read as current leadership evidence (R16.3).
+              `rag` / `payload` / `derivedRates` are null for a Missing cell
+              (no evidence — never a false Green).
+            required:
+              - teamId
+              - teamName
+              - streamId
+              - streamName
+              - state
+              - isSubmittedEvidence
+              - isStale
+              - rag
+              - payload
+              - derivedRates
+              - sourceCheckpointId
+              - sourceWeekNumber
+              - submittedAt
+              - updatedAt
+            properties:
+              teamId:
+                type: string
+              teamName:
+                type: string
+              streamId:
+                type: string
+              streamName:
+                type: string
+              state:
+                type: string
+                enum: [MISSING, DRAFT, SUBMITTED, REOPENED, STALE]
+              isSubmittedEvidence:
+                type: boolean
+              isStale:
+                type: boolean
+              rag:
+                oneOf:
+                  - $ref: '#/components/schemas/RagStatuses'
+                  - type: 'null'
+              payload:
+                oneOf:
+                  - $ref: '#/components/schemas/UpdatePayload'
+                  - type: 'null'
+              derivedRates:
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [executionRate, passRate]
+                    properties:
+                      executionRate:
+                        type: [number, 'null']
+                      passRate:
+                        type: [number, 'null']
+                  - type: 'null'
+              sourceCheckpointId:
+                type: [string, 'null']
+              sourceWeekNumber:
+                type: [integer, 'null']
+                enum: [1, 2, null]
+              submittedAt:
+                type: [string, 'null']
+                format: date-time
+              updatedAt:
+                type: [string, 'null']
+                format: date-time
+
+    # ---------------------------------------------------------------------
+    # Error envelope (design.md §6)
+    # ---------------------------------------------------------------------
+    ErrorCode:
+      type: string
+      enum:
+        - DRAFT_REVISION_CONFLICT
+        - PERMISSION_DENIED
+        - WINDOW_CLOSED
+        - ALREADY_SUBMITTED
+        - INVALID_STATE
+        - NOT_FOUND
+        - SAVE_FAILED
+        - VALIDATION_FAILED
+    FieldError:
+      type: object
+      additionalProperties: false
+      required: [path, message]
+      properties:
+        path:
+          type: string
+          description: Dot path, e.g. `goals.business` or `exceptions.0.owner`.
+        message:
+          type: string
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, correlationId, fieldErrors]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+              description: User-facing copy explaining what happened and the next action.
+            correlationId:
+              type: string
+            fieldErrors:
+              type: array
+              items:
+                $ref: '#/components/schemas/FieldError'
+    RevisionConflictEnvelope:
+      type: object
+      description: >-
+        The 409 conflict envelope. The standard error envelope plus the
+        server's current draft metadata so the client can reconcile without
+        overwriting either version.
+      additionalProperties: false
+      required: [error, server]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, correlationId, fieldErrors]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+            correlationId:
+              type: string
+            fieldErrors:
+              type: array
+              items:
+                $ref: '#/components/schemas/FieldError'
+        server:
+          type: object
+          additionalProperties: false
+          required: [revision, updatedAt, updatedBy]
+          properties:
+            revision:
+              type: integer
+              minimum: 0
+            updatedAt:
+              type: string
+              format: date-time
+            updatedBy:
+              type: string

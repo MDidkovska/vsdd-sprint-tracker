@@ -141,6 +141,7 @@ export type RepositoryErrorCode =
   | 'PERMISSION_DENIED'
   | 'WINDOW_CLOSED'
   | 'ALREADY_SUBMITTED'
+  | 'INVALID_STATE'
   | 'NOT_FOUND'
   | 'SAVE_FAILED'
   | 'VALIDATION_FAILED';

@@ -23,6 +23,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: true,
     // Playwright specs live under tests/e2e and are run by Playwright, not Vitest.
-    exclude: ['**/node_modules/**', '**/dist/**', 'tests/e2e/**'],
+    // The PoC backend (server/) is a separate package with its own Vitest suite.
+    exclude: ['**/node_modules/**', '**/dist/**', 'tests/e2e/**', 'server/**'],
   },
 });

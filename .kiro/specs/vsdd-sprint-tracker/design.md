@@ -165,6 +165,23 @@ Partition/shard key preference: `programmeId` (with `teamId` as a natural sub-ke
 - Submission-snapshot creation and audit-event creation must be atomic within the guarantees of the selected document store (e.g. a transactional batch/transaction within a single partition).
 - Flexible storage does not mean unvalidated data: application validation stays explicit through TypeScript/Zod and the API schema regardless of the store.
 
+## 4b. Local PoC architecture decision (proof of concept only)
+
+The following decision fixes the concrete stack used to build and run the persistence proof of concept **locally**. It is a PoC implementation choice, not a production or PTSB platform commitment. The enterprise constraints in §2 (and task 0.2) remain open.
+
+- **Backend:** Node.js 24 LTS with TypeScript and Fastify.
+- **Document database:** a local MongoDB instance started through Docker Compose.
+- **MongoDB is a PoC choice only.** It is not a production or PTSB platform commitment and does not pre-empt the approved-database decision.
+- **Vendor-neutral boundary:** all persistence stays behind a vendor-neutral document repository adapter (the same repository contract used by the Phase A mock). MongoDB-specific code lives only inside that adapter; the domain and API layers never depend on it.
+- **Schema versioning:** stored documents retain `schemaVersion` and are read through the read-time upcasting defined in §4a. No bulk rewrites.
+- **Draft writes:** use optimistic concurrency via the `revision`/ETag guard defined in §4a; a stale revision returns `409` and overwrites nothing.
+- **Immutability:** submitted versions and audit events remain immutable / append-only.
+- **Authentication:** remains mocked for the local PoC. Production enterprise OIDC integration is Phase 8.
+
+### Still-unresolved enterprise constraints
+
+Production hosting, the OIDC provider and the approved database vendor remain **unresolved enterprise constraints** (see §2 and task 0.2). The local PoC choices above must not be read as resolving them.
+
 ## 5. Update state machine
 
 ```mermaid
@@ -210,6 +227,23 @@ POST /api/v1/updates/{versionId}/reopen
 POST /api/v1/updates/{versionId}/decisions
 POST /api/v1/programmes/{programmeId}/exports
 ```
+
+> **Export (PoC scope).** For the local PoC, `POST .../exports` returns a
+> **synchronous structured JSON snapshot** of the filtered Leadership View
+> population in the response body — the agreed export format (R16.1, task 0.2).
+> It reuses the leadership filtered projection (so the export matches the
+> visible population), enforces the programme-permission gate before any
+> programme lookup (anti-enumeration), and appends an append-only
+> `EXPORT_CREATED` security-audit event on success (R15). Asynchronous export
+> **jobs** and downloadable **artifact storage** are intentionally out of scope
+> for the PoC and are **deferred to a future production decision**; R16 does not
+> require them.
+
+> **Update audit history.** `GET /api/v1/updates/{versionId}/audit` returns the
+> **complete, newest-first** audit trail for the whole update the version
+> belongs to (submit, reopen, resubmit and leadership-decision events). Every
+> event shares a stable update-aggregate id (`${teamId}|${sprintId}|
+> ${checkpointId}`); an unknown version id is a `404`, never an empty `200`.
 
 ### Draft update contract
 

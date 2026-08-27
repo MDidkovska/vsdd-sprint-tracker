@@ -22,6 +22,10 @@ module.exports = {
     'test-results',
     '.eslintrc.cjs',
     'coverage',
+    // The PoC backend (task 7.2a) is a self-contained package with its own
+    // tooling under server/; it is linted/typechecked/tested there, not by the
+    // frontend config.
+    'server/**',
   ],
   rules: {
     // Context/provider files intentionally co-locate a hook with the provider.

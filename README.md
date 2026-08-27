@@ -13,8 +13,14 @@ kept behind vendor-neutral interfaces.
 
 ```bash
 nvm use          # optional, picks up Node 24 from .nvmrc
-npm install
+npm install      # installs BOTH the frontend and the server/ workspace
 ```
+
+This repository is an **npm workspace**. A single `npm install` at the repo
+root installs the frontend dependencies **and** the local PoC backend under
+`server/` (declared in the root `workspaces` field). A single root
+`package-lock.json` manages both packages — there is no separate lockfile under
+`server/`.
 
 ## Run locally
 
@@ -41,7 +47,19 @@ not a shared or production record.
 | `npm run lint` | ESLint (zero-warning policy) |
 | `npm test` | Unit / component / integration tests (Vitest + Testing Library + jest-axe) |
 | `npm run test:e2e` | Playwright end-to-end + visual-regression tests (Chromium) |
-| `npm run verify` | lint + typecheck + test + build |
+| `npm run verify:frontend` | Frontend only: lint + typecheck + test + openapi lint + build |
+| `npm run verify` | Full verification: the frontend checks **plus** the `server/` workspace verify (its own lint + typecheck + test + production build) |
+
+`npm run verify` verifies **both** the frontend and the PoC backend. The backend
+is checked by its own tooling via the workspace (`npm run verify --workspace
+server`). No dependencies are installed at verify time — run `npm install` once
+first (see [Requirements](#requirements)).
+
+The backend integration tests start an ephemeral in-process MongoDB
+(`mongodb-memory-server`). On the **first** run the library downloads a `mongod`
+binary (cached for later runs), so the first `npm run verify` takes longer and
+needs network access. See [`server/README.md`](server/README.md) for backend
+details.
 
 ### End-to-end and visual tests
 

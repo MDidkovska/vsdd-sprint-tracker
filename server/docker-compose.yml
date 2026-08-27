@@ -1,0 +1,65 @@
+# Local PoC MongoDB for the VSDD Sprint Tracker backend.
+#
+# PROOF OF CONCEPT ONLY (design.md §4b). MongoDB is a PoC choice and does not
+# pre-empt the approved-database decision. This compose file runs a local
+# MongoDB as a SINGLE-NODE REPLICA SET (`rs0`) with NO authentication, bound to
+# localhost only. Do not use in production and do not expose the published port
+# beyond the local machine.
+#
+# Why a replica set: the submit, reopen and leadership-decision operations use
+# multi-document transactions (`session.withTransaction`). MongoDB only supports
+# transactions on a replica set (or a sharded cluster) — a standalone server
+# reports healthy but every transactional write fails. A single-node replica set
+# is the smallest configuration that makes transactions usable locally.
+#
+# Usage:
+#   docker compose up -d      # start MongoDB in the background
+#   docker compose down       # stop and remove the container
+#   docker compose down -v    # also remove the data volume
+#
+# The replica set initialises itself the first time the health check runs (see
+# below) and the initiation is idempotent — restarts never re-initiate.
+
+services:
+  mongo:
+    # Pinned to an explicit supported patch release rather than a floating major
+    # tag, so the local PoC is reproducible across machines.
+    image: mongo:7.0.14
+    container_name: vsdd-poc-mongo
+    restart: unless-stopped
+    # Run as a single-node replica set named `rs0`. `--bind_ip_all` lets the
+    # health check and the host driver reach mongod inside the container.
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    # Bind to localhost only so the unauthenticated PoC instance is not exposed.
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - vsdd_mongo_data:/data/db
+    healthcheck:
+      # Idempotently initiate the replica set, then report healthy ONLY when the
+      # node is a writable PRIMARY — i.e. transactions are actually usable. The
+      # member host is `127.0.0.1:27017` so the config the driver discovers is
+      # reachable from the host machine (matching the published port).
+      #
+      # rs.status() throws before initiation; we initiate in that case and every
+      # later run finds an already-initiated set, so this is safe to re-run.
+      # `quit(1)` fails the probe until a PRIMARY has been elected.
+      test:
+        - "CMD"
+        - "mongosh"
+        - "--quiet"
+        - "--eval"
+        - |
+          try { rs.status(); }
+          catch (e) {
+            rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] });
+          }
+          if (!db.hello().isWritablePrimary) { quit(1); }
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  vsdd_mongo_data:
+    driver: local
