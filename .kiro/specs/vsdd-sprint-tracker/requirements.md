@@ -301,7 +301,8 @@ POST /api/v1/admin/users/{userId}/suspend
 
 ### Performance
 
-- Leadership View target: interactive within three seconds at p75 for up to 200 teams and 24 months of history on a standard enterprise laptop/network.
+- PoC benchmark: exercise the Leadership View locally at 8 teams plus a 2× growth margin (about 16 teams), capturing basic latency and error counters from the existing structured logs. Production-scale load testing (for example the 200-team / 24-month target below) is deferred to Phase B.
+- Phase B production target: Leadership View interactive within three seconds at p75 for up to 200 teams and 24 months of history on a standard enterprise laptop/network.
 - Load only the current tree and selected detail initially; fetch history on demand.
 - Filtering current-cycle data should complete within one second at p95.
 
@@ -315,8 +316,9 @@ POST /api/v1/admin/users/{userId}/suspend
 
 ### Browser support
 
-- Current and previous major versions of Edge and Chrome are required.
-- Safari and Firefox support should be confirmed with the product owner before production hardening.
+- For the PoC, Chrome (current and previous major versions) is the supported browser.
+- Safari is smoke-tested only.
+- Edge and Firefox certification is deferred to Phase B production hardening.
 
 ## 7. Out of scope for the first production increment
 

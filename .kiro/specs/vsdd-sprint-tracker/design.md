@@ -26,7 +26,7 @@ Use this stack for the first implementation unless the target PTSB platform mand
   stable subject ID and group/role claims) can replace it later without
   rewriting business services. Enterprise OIDC is a future decision (task 0.2).
 - Testing: Vitest, Testing Library, Playwright and API integration tests
-- Observability: structured application telemetry without logging free-text status content
+- Observability (PoC): structured application logs (stable ids, event type, status, timing) with basic latency and error counters derived from those logs, and never any password, session token or free-text status content. An enterprise observability platform is a Phase B decision.
 
 The current static prototype is a UX reference and a functional local adapter. Do not port its localStorage persistence into production.
 
@@ -662,11 +662,22 @@ Production CSS may use approved OKLCH equivalents, but exported documents and de
 - Re-validate account status and assignments on every authenticated request so a rejected/suspended account loses access immediately; delete sessions on logout and suspension.
 - Rate-limit registration and login; a user can never approve/assign/suspend their own account.
 - Encode user-authored text on output; do not render stored HTML.
-- Apply CSP with an allowlist appropriate to the deployment platform.
-- Apply CSP with an allowlist appropriate to the deployment platform.
+- Apply a minimal CSP with an allowlist appropriate to the deployment; keep it local-HTTP friendly for development.
+- Add CSRF protection for state-changing requests.
 - Use parameterised / server-side-constructed queries; never build datastore queries from raw user input regardless of the selected document store.
-- Protect export endpoints against programme-data enumeration.
+- Protect export endpoints against programme-data enumeration; return generic responses on login, registration and export that avoid account or data enumeration.
 - Separate audit-event access from general application logs.
+
+### PoC hardening scope (Phase 10)
+
+Phase 10 hardens the **local internal PoC** and does not make it production-ready.
+It covers the secure local-auth baseline, log hygiene, minimal abuse protection,
+draft-recovery verification, lightweight UI checks and a local readiness benchmark
+(8 teams plus a 2× growth margin) with basic latency/error counters and a concise
+residual-risk checklist. Deferred to Phase B, alongside the OIDC, production
+database and hosting decisions: production-scale load testing, an enterprise
+observability platform, Edge/Firefox certification, formal penetration testing and
+a full enterprise threat-model and security approval.
 
 ## 14. Test strategy
 
@@ -716,10 +727,11 @@ Production CSS may use approved OKLCH equivalents, but exported documents and de
 
 ### Accessibility and visual regression
 
-- Automated axe scan on both primary screens and error/empty states.
-- Keyboard-only scenario for complete draft → submit → leadership drill-down.
-- Visual regression at 1440×1000, 1024×768, 768×1024 and 390×844.
+- Automated axe (WCAG 2.2 AA) scan on both primary screens and error/empty states.
+- Manual keyboard smoke test covering the complete draft → submit → leadership drill-down.
+- Visual regression at 1440×1000 and 390×844 for the PoC (the intermediate 1024×768 and 768×1024 breakpoints remain design targets in §11 but are not gated by the PoC visual-regression run).
 - Verify RAG meaning in grayscale and with common colour-vision simulations.
+- Chrome is the supported browser for the PoC; Safari is smoke-tested only. Edge/Firefox certification is deferred to Phase B.
 
 ## 15. Migration path from prototype
 

@@ -145,18 +145,21 @@ Tasks are ordered. Do not begin production persistence before the approved UI be
 - [x] 9.6 Archive teams without removing historical records.
 - [x] 9.7 Add admin and audit-role tests.
 
-## Phase 10 — Hardening
+## Phase 10 — PoC hardening (local internal proof of concept)
 
-- [ ] 10.1 Apply secure cookie/token handling, CSRF controls, CSP and output encoding.
-- [ ] 10.2 Verify that logs never contain free-text update content or credentials.
-- [ ] 10.3 Add rate limits and export/data-enumeration protections.
-- [ ] 10.4 Instrument latency, save failure, submit failure, conflict and notification metrics.
-- [ ] 10.5 Load-test current-cycle leadership queries at the expected team count plus growth margin.
-- [ ] 10.6 Verify draft recovery after network interruption.
-- [ ] 10.7 Run WCAG 2.2 AA automated scans and manual keyboard checks.
-- [ ] 10.8 Run visual regression at 1440×1000, 1024×768, 768×1024 and 390×844.
-- [ ] 10.9 Verify Chrome and Edge support; record Safari/Firefox decision.
-- [ ] 10.10 Complete security review and threat-model actions.
+Phase 10 hardens the local internal PoC only. It is not a production-readiness
+gate: production-scale load testing, enterprise observability platforms,
+Edge/Firefox certification, formal penetration testing and a full enterprise
+threat-model/security approval are explicitly deferred to Phase B, alongside the
+OIDC, production database and hosting decisions (see task 0.2). Do not treat the
+PoC as production-ready.
+
+- [ ] 10.1 Secure the local-auth baseline: HttpOnly/SameSite session cookies, `Secure` cookies in production, CSRF protection for state-changing requests, output encoding for user-authored text and a minimal Content-Security-Policy. Preserve plain-HTTP local development (Secure cookies stay off locally).
+- [ ] 10.2 Ensure logs never contain passwords, session tokens or free-text update content; retain only structured operational metadata (stable ids, event type, status, timing).
+- [ ] 10.3 Apply minimal abuse protection to login, registration and export: rate limiting plus generic responses that prevent account or programme-data enumeration.
+- [ ] 10.4 Verify draft recovery after a temporary network interruption, a revision conflict or a failed autosave, with no silent data loss (unsaved content stays available for retry).
+- [ ] 10.5 Run lightweight UI checks: an automated WCAG 2.2 AA scan, a manual keyboard smoke test, visual regression at 1440×1000 and 390×844, with Chrome as the supported browser and Safari smoke-tested only. (Edge/Firefox certification is deferred to Phase B.)
+- [ ] 10.6 Produce PoC readiness evidence: a local benchmark for 8 teams plus a 2× growth margin, basic latency and error counters derived from the existing structured logs, and a concise security / residual-risk checklist. (Production-scale load testing, enterprise observability, formal penetration testing and full enterprise threat-model/security approval are deferred to Phase B.)
 
 ## Phase 11 — Pilot and release
 
