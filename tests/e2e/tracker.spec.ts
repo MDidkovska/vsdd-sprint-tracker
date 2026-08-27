@@ -1,8 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { ACCOUNTS, signIn } from './support/auth';
 
-test.describe('VSDD Sprint Tracker — Phase A', () => {
+// The mock auth client resets to anonymous on every page load, so each test
+// signs in AFTER navigating to '/'. Team Update tests use lead@vsdd.test
+// (TEAM_LEAD → Team Update tab); Leadership View tests use auditor@vsdd.test
+// (AUDITOR → Leadership View tab, read-only). No account exposes both tabs.
+test.describe('VSDD Sprint Tracker — Phase A · Team Update', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await signIn(page, ACCOUNTS.lead);
   });
 
   test('loads the Team Update view with the four goal fields and three RAG selectors', async ({ page }) => {
@@ -37,6 +42,12 @@ test.describe('VSDD Sprint Tracker — Phase A', () => {
     await page.getByLabel('Stream', { exact: true }).selectOption('O24');
     await page.getByLabel('Team', { exact: true }).selectOption('o24-desktop');
     await expect(page.getByText(/read-only access to this team/)).toBeVisible();
+  });
+});
+
+test.describe('VSDD Sprint Tracker — Phase A · Leadership View', () => {
+  test.beforeEach(async ({ page }) => {
+    await signIn(page, ACCOUNTS.auditor);
   });
 
   test('leadership drill-down shows the same submitted values under the hierarchy path', async ({ page }) => {

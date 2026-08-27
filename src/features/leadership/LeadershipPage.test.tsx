@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { axe } from 'jest-axe';
 import { LeadershipPage } from './LeadershipPage';
 import { renderWithProviders } from '../../test/renderApp';
+import { axeWcag22aa } from '../../test/axe';
 
 async function waitForTree() {
   await waitFor(() => expect(screen.getByLabelText('Programme hierarchy')).toBeInTheDocument());
@@ -92,9 +92,23 @@ describe('LeadershipPage', () => {
     await waitFor(() => expect(screen.getByLabelText('Programme hierarchy')).toBeInTheDocument());
   });
 
-  it('has no axe violations on the loaded programme view', async () => {
+  it('has no WCAG 2.2 AA axe violations on the loaded programme view', async () => {
     const { container } = renderWithProviders(<LeadershipPage />);
     await waitForTree();
-    expect(await axe(container)).toHaveNoViolations();
+    expect(await axeWcag22aa(container)).toHaveNoViolations();
+  });
+
+  it('has no WCAG 2.2 AA axe violations on the filtered zero-result state', async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithProviders(<LeadershipPage />);
+    await waitForTree();
+    // Drive the hierarchy into its empty state (task 10.5 requires the scan to
+    // cover error/empty states, not only the happy path).
+    await user.selectOptions(screen.getByLabelText('Stream'), 'Visa');
+    await user.selectOptions(screen.getByLabelText('Update state'), 'MISSING');
+    await waitFor(() =>
+      expect(screen.getByText('No teams match these filters')).toBeInTheDocument(),
+    );
+    expect(await axeWcag22aa(container)).toHaveNoViolations();
   });
 });

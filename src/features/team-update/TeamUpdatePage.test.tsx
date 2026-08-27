@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { axe } from 'jest-axe';
 import { TeamUpdatePage } from './TeamUpdatePage';
 import { renderWithProviders } from '../../test/renderApp';
+import { axeWcag22aa } from '../../test/axe';
 import { MockRepository } from '../../api/mockRepository';
 import {
   RepositoryError,
@@ -321,7 +321,7 @@ describe('TeamUpdatePage explicit leadership ask', () => {
 });
 
 describe('TeamUpdatePage accessibility', () => {
-  it('has no axe violations on the loaded editable draft', async () => {
+  it('has no WCAG 2.2 AA axe violations on the loaded editable draft', async () => {
     const user = userEvent.setup();
     const { container } = renderWithProviders(<TeamUpdatePage />);
     await waitForLoaded();
@@ -329,6 +329,20 @@ describe('TeamUpdatePage accessibility', () => {
     await waitFor(() =>
       expect(screen.getByRole('textbox', { name: /Business goal/ })).toBeEnabled(),
     );
-    expect(await axe(container)).toHaveNoViolations();
+    expect(await axeWcag22aa(container)).toHaveNoViolations();
+  });
+
+  it('has no WCAG 2.2 AA axe violations on the load-error state', async () => {
+    // Task 10.5: the scan must also cover error states, not only happy paths.
+    class FailingRepo extends MockRepository {
+      override async getUpdate(): Promise<never> {
+        throw new RepositoryError('SAVE_FAILED', 'boom');
+      }
+    }
+    const { container } = renderWithProviders(<TeamUpdatePage />, {
+      repository: new FailingRepo({ latencyMs: 0 }),
+    });
+    await screen.findByText(/This update could not be loaded/);
+    expect(await axeWcag22aa(container)).toHaveNoViolations();
   });
 });

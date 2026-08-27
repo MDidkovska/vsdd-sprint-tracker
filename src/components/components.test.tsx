@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { axe } from 'jest-axe';
+import { axeWcag22aa } from '../test/axe';
 import { RagSelector } from './RagSelector';
 import { TextareaField } from './Field';
 import { StatusDot } from './StatusDot';
@@ -35,7 +35,7 @@ describe('RagSelector', () => {
     const { container } = render(
       <RagSelector name="delivery" label="Test delivery" value="AMBER" onChange={() => {}} />,
     );
-    expect(await axe(container)).toHaveNoViolations();
+    expect(await axeWcag22aa(container)).toHaveNoViolations();
   });
 });
 
@@ -60,7 +60,7 @@ describe('TextareaField', () => {
     const { container } = render(
       <TextareaField label="Sprint commitment" hint="Specific evidence the team commits to deliver." />,
     );
-    expect(await axe(container)).toHaveNoViolations();
+    expect(await axeWcag22aa(container)).toHaveNoViolations();
   });
 });
 
@@ -188,6 +188,6 @@ describe('ExceptionTable (read-only)', () => {
 
   it('has no accessibility violations', async () => {
     const { container } = render(<ExceptionTable exceptions={[seedItem]} />);
-    expect(await axe(container)).toHaveNoViolations();
+    expect(await axeWcag22aa(container)).toHaveNoViolations();
   });
 });

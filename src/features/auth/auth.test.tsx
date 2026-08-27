@@ -7,9 +7,9 @@
  */
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { axe } from 'jest-axe';
 import { describe, expect, it } from 'vitest';
 import type { ReactNode } from 'react';
+import { axeWcag22aa } from '../../test/axe';
 import type { CurrentUser } from '../../api/repository';
 import type { AuthClient } from '../../auth/authClient';
 import { AuthProvider } from '../../auth/AuthProvider';
@@ -102,9 +102,9 @@ describe('AuthGate', () => {
     expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeInTheDocument();
   });
 
-  it('the sign-in screen has no accessibility violations', async () => {
+  it('the sign-in screen has no WCAG 2.2 AA accessibility violations', async () => {
     const { container } = renderGate(createMockAuthClient());
     await screen.findByRole('heading', { name: 'Sign in' });
-    expect(await axe(container)).toHaveNoViolations();
+    expect(await axeWcag22aa(container)).toHaveNoViolations();
   });
 });

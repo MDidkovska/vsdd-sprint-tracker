@@ -233,6 +233,18 @@
         "chatSessionId": "sess_39e3214b-235e-425b-a395-3ef8027024d0",
         "timestamp": 1787869568702
       }
+    ],
+    "10.5 Run lightweight UI checks: an automated WCAG 2.2 AA scan, a manual keyboard smoke test, visual regression at 1440×1000 and 390×844, with Chrome as the supported browser and Safari smoke-tested only. (Edge/Firefox certification is deferred to Phase B.)": [
+      {
+        "executionId": "4ba6d0a8-3b5b-4504-a5dc-7edcab58934e",
+        "chatSessionId": "sess_f3372731-c704-43e9-ab8d-c162cab11819",
+        "timestamp": 1787869664183
+      },
+      {
+        "executionId": "4ba6d0a8-3b5b-4504-a5dc-7edcab58934e",
+        "chatSessionId": "sess_f3372731-c704-43e9-ab8d-c162cab11819",
+        "timestamp": 1787871027985
+      }
     ]
   }
 }
