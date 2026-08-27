@@ -18,6 +18,7 @@ export type ApiErrorCode =
   | 'PERMISSION_DENIED'
   | 'WINDOW_CLOSED'
   | 'ALREADY_SUBMITTED'
+  | 'INVALID_STATE'
   | 'NOT_FOUND'
   | 'SAVE_FAILED'
   | 'VALIDATION_FAILED';
@@ -42,6 +43,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   PERMISSION_DENIED: 403,
   NOT_FOUND: 404,
   ALREADY_SUBMITTED: 409,
+  INVALID_STATE: 409,
   DRAFT_REVISION_CONFLICT: 409,
   WINDOW_CLOSED: 409,
   SAVE_FAILED: 500,
@@ -69,9 +71,50 @@ export class ApiError extends Error {
     return new ApiError('NOT_FOUND', message);
   }
 
+  /**
+   * A `409` state-conflict: the requested lifecycle transition is not valid for
+   * the aggregate's current state (e.g. reopening something that is not the
+   * current SUBMITTED version). The operation changes nothing.
+   */
+  static invalidState(message: string): ApiError {
+    return new ApiError('INVALID_STATE', message);
+  }
+
   static validation(message: string, fieldErrors: FieldError[] = []): ApiError {
     return new ApiError('VALIDATION_FAILED', message, fieldErrors);
   }
+}
+
+/** Server-side draft metadata returned alongside a revision conflict (§6). */
+export interface ConflictServerMeta {
+  revision: number;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+/**
+ * A stale-revision write conflict (design.md §6, R11.5). Maps to `409` and, in
+ * addition to the standard envelope, carries the server's current draft
+ * metadata (`server`) so the client can reconcile without overwriting either
+ * version. The Fastify error handler serialises this to the
+ * `RevisionConflictEnvelope` shape (error + server).
+ */
+export class DraftRevisionConflictError extends ApiError {
+  readonly server: ConflictServerMeta;
+
+  constructor(server: ConflictServerMeta) {
+    super(
+      'DRAFT_REVISION_CONFLICT',
+      'This draft changed after you opened it. Review the latest version before saving.',
+    );
+    this.name = 'DraftRevisionConflictError';
+    this.server = server;
+  }
+}
+
+/** The `409` conflict envelope: the standard error envelope plus server meta. */
+export interface RevisionConflictEnvelope extends ErrorEnvelope {
+  server: ConflictServerMeta;
 }
 
 /** Build the wire envelope for an error. */

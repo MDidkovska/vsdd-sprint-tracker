@@ -27,7 +27,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     host: env.HOST ?? '0.0.0.0',
     port: parsePort(env.PORT, 8080),
-    mongoUri: env.MONGO_URI ?? 'mongodb://localhost:27017',
+    // The local PoC MongoDB runs as a single-node replica set (`rs0`) so that
+    // transactional writes (submit / reopen / decision) work. The `replicaSet`
+    // parameter is REQUIRED — connecting without it disables transactions.
+    mongoUri: env.MONGO_URI ?? 'mongodb://localhost:27017/?replicaSet=rs0',
     mongoDb: env.MONGO_DB ?? 'vsdd_sprint_tracker',
     logLevel: env.LOG_LEVEL ?? 'info',
   };

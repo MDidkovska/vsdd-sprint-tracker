@@ -23,9 +23,11 @@ import {
   type Collection,
   type Db,
   type Document,
+  type Filter,
 } from 'mongodb';
 import type {
   AuditEvent,
+  LeadershipDecision,
   UpdateDocument,
   UpdateVersion,
 } from '../domain/documents.js';
@@ -39,7 +41,13 @@ import type {
 import type { ReferenceData } from '../reference/referenceData.js';
 import type {
   DocumentRepository,
+  RecordDecisionInput,
+  ReopenOutcome,
+  ReopenUpdateInput,
   SaveDraftInput,
+  SubmitDraftInput,
+  SubmitOutcome,
+  UpdateQuery,
   WriteOutcome,
 } from './documentRepository.js';
 import { ImmutableViolationError, RepositoryError } from './errors.js';
@@ -53,6 +61,7 @@ const COLLECTIONS = {
   updates: 'updates',
   updateVersions: 'updateVersions',
   auditEvents: 'auditEvents',
+  decisions: 'decisions',
   // Reference/config collections (design.md §4a).
   programmes: 'programmes',
   streams: 'streams',
@@ -71,6 +80,22 @@ function isDuplicateKeyError(error: unknown): boolean {
     'code' in error &&
     (error as { code?: unknown }).code === DUPLICATE_KEY
   );
+}
+
+/**
+ * Internal sentinel used to unwind a submit transaction on a stale-revision
+ * guard. Throwing inside `withTransaction` aborts the transaction (nothing is
+ * committed); the adapter catches it and translates it into a conflict
+ * {@link SubmitOutcome} rather than an error. It never escapes the adapter.
+ */
+class StaleRevisionSignal extends Error {
+  readonly server: { revision: number; updatedAt: string; updatedBy: string };
+
+  constructor(server: { revision: number; updatedAt: string; updatedBy: string }) {
+    super('stale revision');
+    this.name = 'StaleRevisionSignal';
+    this.server = server;
+  }
 }
 
 /** Drop MongoDB's physical `_id` so callers only ever see domain shapes. */
@@ -116,6 +141,10 @@ export class MongoDocumentRepository implements DocumentRepository {
     return this.db.collection<AuditEvent>(COLLECTIONS.auditEvents);
   }
 
+  private get decisions(): Collection<LeadershipDecision> {
+    return this.db.collection<LeadershipDecision>(COLLECTIONS.decisions);
+  }
+
   private get programmes(): Collection<Programme> {
     return this.db.collection<Programme>(COLLECTIONS.programmes);
   }
@@ -159,6 +188,21 @@ export class MongoDocumentRepository implements DocumentRepository {
       { entityId: 1, timestamp: 1 },
       { name: 'ix_audit_entity' },
     );
+    // Serves the unified per-update audit trail (newest first). Every lifecycle
+    // event for one update shares `aggregateId`; the descending timestamp key
+    // matches the endpoint's newest-first ordering.
+    await this.audit.createIndex(
+      { aggregateId: 1, timestamp: -1 },
+      { name: 'ix_audit_aggregate' },
+    );
+
+    // Leadership decisions: unique id (append-only immutability) plus the
+    // natural lookup by the version the decision was recorded against.
+    await this.decisions.createIndex({ id: 1 }, { unique: true, name: 'uq_decision_id' });
+    await this.decisions.createIndex(
+      { updateVersionId: 1, createdAt: 1 },
+      { name: 'ix_decision_version' },
+    );
 
     // Reference/config collections: unique id plus the natural lookup keys.
     await this.programmes.createIndex({ id: 1 }, { unique: true, name: 'uq_programme_id' });
@@ -185,8 +229,20 @@ export class MongoDocumentRepository implements DocumentRepository {
   }
 
   async ping(): Promise<boolean> {
+    // Basic reachability first: the server must answer a command.
     const result = await this.db.command({ ping: 1 });
-    return result?.ok === 1;
+    if (result?.ok !== 1) return false;
+
+    // Readiness for the PoC means more than "reachable": the submit, reopen and
+    // decision paths use multi-document transactions, which MongoDB only allows
+    // on a replica set (or a mongos in a sharded cluster). A standalone server
+    // answers `ping` but every transactional write would fail — so `/ready`
+    // must NOT report ready against a standalone. `hello` tells us the topology.
+    const hello = await this.db.admin().command({ hello: 1 });
+    const inReplicaSet = typeof hello.setName === 'string' && hello.setName.length > 0;
+    const isWritablePrimary = hello.isWritablePrimary === true || hello.ismaster === true;
+    const isMongos = hello.msg === 'isdbgrid';
+    return isMongos || (inReplicaSet && isWritablePrimary);
   }
 
   // --- reference / config reads (design.md §4a, task 7.3) ------------------
@@ -250,6 +306,11 @@ export class MongoDocumentRepository implements DocumentRepository {
     return raw.map((doc) => stripId(doc) as Sprint);
   }
 
+  async getSprint(sprintId: string): Promise<Sprint | null> {
+    const raw = await this.sprints.findOne({ id: sprintId });
+    return raw ? (stripId(raw) as Sprint) : null;
+  }
+
   async listCheckpoints(sprintId: string): Promise<ReportingCheckpoint[]> {
     const raw = await this.checkpoints
       .find({ sprintId })
@@ -258,9 +319,38 @@ export class MongoDocumentRepository implements DocumentRepository {
     return raw.map((doc) => stripId(doc) as ReportingCheckpoint);
   }
 
+  async getTeam(teamId: string): Promise<Team | null> {
+    const raw = await this.teams.findOne({ id: teamId });
+    return raw ? (stripId(raw) as Team) : null;
+  }
+
+  async getCheckpoint(checkpointId: string): Promise<ReportingCheckpoint | null> {
+    const raw = await this.checkpoints.findOne({ id: checkpointId });
+    return raw ? (stripId(raw) as ReportingCheckpoint) : null;
+  }
+
   async getDraft(id: string): Promise<UpdateDocument | null> {
     const raw = await this.updates.findOne({ id });
     return raw ? (stripId(raw) as UpdateDocument) : null;
+  }
+
+  async listUpdates(query: UpdateQuery): Promise<UpdateDocument[]> {
+    // Filter on stable envelope fields only — the compound `ix_update_leadership`
+    // index (programmeId, sprintId, checkpointId, streamId, state) serves this.
+    const filter: Filter<UpdateDocument> = { programmeId: query.programmeId };
+    if (query.sprintId) filter.sprintId = query.sprintId;
+    if (query.checkpointId) filter.checkpointId = query.checkpointId;
+    if (query.streamId) filter.streamId = query.streamId;
+    const raw = await this.updates.find(filter).toArray();
+    return raw.map((doc) => stripId(doc) as UpdateDocument);
+  }
+
+  async listVersionsForProgramme(programmeId: string): Promise<UpdateVersion[]> {
+    const raw = await this.versions
+      .find({ programmeId })
+      .sort({ versionNumber: -1 })
+      .toArray();
+    return raw.map((doc) => stripId(doc) as UpdateVersion);
   }
 
   async saveDraft(input: SaveDraftInput): Promise<WriteOutcome<UpdateDocument>> {
@@ -314,6 +404,162 @@ export class MongoDocumentRepository implements DocumentRepository {
     };
   }
 
+  async submitUpdate(input: SubmitDraftInput): Promise<SubmitOutcome> {
+    const { document, version, audit, expectedRevision } = input;
+    const nextRevision = expectedRevision + 1;
+    // The stored revision is authoritative — never trust the body's revision.
+    const toStore: UpdateDocument = { ...document, revision: nextRevision };
+
+    // A single transaction makes the three writes — draft transition, immutable
+    // version append and audit append — atomic (design.md §4a). If any step
+    // fails (including a stale-revision guard or a duplicate version id) the
+    // whole unit is rolled back and nothing is left behind. Transactions
+    // require a replica set / mongos; the production store and the submit tests
+    // both provide one.
+    const session = this.client.startSession();
+    try {
+      let storedDocument: UpdateDocument | undefined;
+
+      await session.withTransaction(async () => {
+        // Reset per-attempt state: withTransaction may retry the callback.
+        storedDocument = undefined;
+
+        if (expectedRevision === 0) {
+          // Submitting a fresh draft (no stored document yet): insert it. A
+          // pre-existing document means someone else got there first.
+          const existing = await this.updates.findOne({ id: document.id }, { session });
+          if (existing) {
+            throw new StaleRevisionSignal(this.metaFrom(stripId(existing) as UpdateDocument));
+          }
+          await this.updates.insertOne({ ...toStore }, { session });
+          storedDocument = toStore;
+        } else {
+          // Conditional transition: only when the stored revision still matches.
+          const { id, revision: _ignored, ...mutableFields } = toStore;
+          void _ignored;
+          const updated = await this.updates.findOneAndUpdate(
+            { id, revision: expectedRevision },
+            { $set: { ...mutableFields, revision: nextRevision } },
+            { session, returnDocument: 'after' },
+          );
+          if (!updated) {
+            const current = await this.updates.findOne({ id }, { session });
+            throw new StaleRevisionSignal(
+              current
+                ? this.metaFrom(stripId(current) as UpdateDocument)
+                : { revision: 0, updatedAt: new Date(0).toISOString(), updatedBy: 'unknown' },
+            );
+          }
+          storedDocument = stripId(updated) as UpdateDocument;
+        }
+
+        // Append-only immutable snapshot + audit event within the same txn.
+        await this.versions.insertOne({ ...version }, { session });
+        await this.audit.insertOne({ ...audit }, { session });
+      });
+
+      // withTransaction only returns after a successful commit.
+      return { ok: true, document: storedDocument as UpdateDocument, version };
+    } catch (error) {
+      if (error instanceof StaleRevisionSignal) {
+        return { ok: false, conflict: true, server: error.server };
+      }
+      if (isDuplicateKeyError(error)) {
+        // A concurrent submit created the same immutable version/audit id.
+        throw new ImmutableViolationError(
+          'A submitted version with this id already exists and is immutable.',
+        );
+      }
+      throw new RepositoryError('SAVE_FAILED', 'The submission could not be stored.');
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async reopenUpdate(input: ReopenUpdateInput): Promise<ReopenOutcome> {
+    const { document, audit, expectedRevision } = input;
+    const nextRevision = expectedRevision + 1;
+    // The stored revision is authoritative — never trust the body's revision.
+    const toStore: UpdateDocument = { ...document, revision: nextRevision };
+
+    // A single transaction makes the two writes — the SUBMITTED -> REOPENED
+    // draft transition and the append-only audit event — atomic (design.md
+    // §4a). The immutable submitted version is never touched here, so a reopen
+    // cannot mutate or delete leadership evidence (R11.4). If any step fails
+    // (including a stale-revision guard) the whole unit rolls back and no orphan
+    // audit document is left behind. Transactions require a replica set / mongos.
+    const session = this.client.startSession();
+    try {
+      let storedDocument: UpdateDocument | undefined;
+
+      await session.withTransaction(async () => {
+        // Reset per-attempt state: withTransaction may retry the callback.
+        storedDocument = undefined;
+
+        if (expectedRevision === 0) {
+          // No draft aggregate exists yet (edge case): insert the REOPENED
+          // envelope. A pre-existing document means someone else got there first.
+          const existing = await this.updates.findOne({ id: document.id }, { session });
+          if (existing) {
+            throw new StaleRevisionSignal(this.metaFrom(stripId(existing) as UpdateDocument));
+          }
+          await this.updates.insertOne({ ...toStore }, { session });
+          storedDocument = toStore;
+        } else {
+          // Conditional transition: only when the stored revision still matches.
+          const { id, revision: _ignored, ...mutableFields } = toStore;
+          void _ignored;
+          const updated = await this.updates.findOneAndUpdate(
+            { id, revision: expectedRevision },
+            { $set: { ...mutableFields, revision: nextRevision } },
+            { session, returnDocument: 'after' },
+          );
+          if (!updated) {
+            const current = await this.updates.findOne({ id }, { session });
+            throw new StaleRevisionSignal(
+              current
+                ? this.metaFrom(stripId(current) as UpdateDocument)
+                : { revision: 0, updatedAt: new Date(0).toISOString(), updatedBy: 'unknown' },
+            );
+          }
+          storedDocument = stripId(updated) as UpdateDocument;
+        }
+
+        // Append-only reopen audit event within the same transaction.
+        await this.audit.insertOne({ ...audit }, { session });
+      });
+
+      // withTransaction only returns after a successful commit.
+      return { ok: true, document: storedDocument as UpdateDocument };
+    } catch (error) {
+      if (error instanceof StaleRevisionSignal) {
+        return { ok: false, conflict: true, server: error.server };
+      }
+      if (isDuplicateKeyError(error)) {
+        // A concurrent reopen created the same audit id.
+        throw new ImmutableViolationError(
+          'An audit event with this id already exists; audit data is append-only.',
+        );
+      }
+      throw new RepositoryError('SAVE_FAILED', 'The reopen could not be stored.');
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  /** Extract the server-side envelope metadata from a stored document. */
+  private metaFrom(document: UpdateDocument): {
+    revision: number;
+    updatedAt: string;
+    updatedBy: string;
+  } {
+    return {
+      revision: document.revision,
+      updatedAt: document.updatedAt,
+      updatedBy: document.updatedBy,
+    };
+  }
+
   async appendVersion(version: UpdateVersion): Promise<UpdateVersion> {
     try {
       await this.versions.insertOne({ ...version });
@@ -361,6 +607,61 @@ export class MongoDocumentRepository implements DocumentRepository {
       .sort({ timestamp: 1 })
       .toArray();
     return raw.map((doc) => stripId(doc) as AuditEvent);
+  }
+
+  async listAuditForAggregate(aggregateId: string): Promise<AuditEvent[]> {
+    // Newest first. `_id` (a monotonic ObjectId) is the deterministic
+    // tie-breaker when two events share an identical millisecond timestamp, so
+    // the ordering is stable even for events appended in quick succession
+    // (e.g. submit -> reopen -> resubmit -> decision in one test).
+    const raw = await this.audit
+      .find({ aggregateId })
+      .sort({ timestamp: -1, _id: -1 })
+      .toArray();
+    return raw.map((doc) => stripId(doc) as AuditEvent);
+  }
+
+  async recordDecision(input: RecordDecisionInput): Promise<LeadershipDecision> {
+    const { decision, audit } = input;
+
+    // A single transaction makes the two append-only writes — the immutable
+    // decision document and the audit event — atomic (design.md §4a). The
+    // referenced submitted version and the team's original ask are never
+    // touched here, so recording a decision cannot mutate leadership evidence
+    // (R10.3). If either insert fails the whole unit rolls back and no orphan
+    // decision or audit document is left behind. Transactions require a replica
+    // set / mongos, which the production store and the decision tests provide.
+    const session = this.client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await this.decisions.insertOne({ ...decision }, { session });
+        await this.audit.insertOne({ ...audit }, { session });
+      });
+      return decision;
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        // A concurrent write created the same decision/audit id.
+        throw new ImmutableViolationError(
+          'A leadership decision with this id already exists and is immutable.',
+        );
+      }
+      throw new RepositoryError('SAVE_FAILED', 'The decision could not be stored.');
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async getDecision(id: string): Promise<LeadershipDecision | null> {
+    const raw = await this.decisions.findOne({ id });
+    return raw ? (stripId(raw) as LeadershipDecision) : null;
+  }
+
+  async listDecisions(versionId: string): Promise<LeadershipDecision[]> {
+    const raw = await this.decisions
+      .find({ updateVersionId: versionId })
+      .sort({ createdAt: 1 })
+      .toArray();
+    return raw.map((doc) => stripId(doc) as LeadershipDecision);
   }
 
   async close(): Promise<void> {

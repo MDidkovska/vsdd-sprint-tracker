@@ -262,6 +262,39 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /updates/{versionId}/compare/{compareVersionId}:
+    get:
+      operationId: compareUpdateVersions
+      tags: [updates]
+      summary: Field-by-field comparison of two immutable versions
+      description: >-
+        Produces a structured diff between two submitted versions of the same
+        update line (same team, sprint and checkpoint): for every field it
+        reports the previous and current value and whether it changed, plus the
+        added/removed/modified/unchanged exception lines (R14.3). The versions
+        are ordered by versionNumber, so `previous` is the earlier submission
+        regardless of the path order. Comparing versions from different teams or
+        checkpoints, or a version with itself, returns 400 VALIDATION_FAILED.
+        Neither version is mutated.
+      parameters:
+        - $ref: '#/components/parameters/VersionId'
+        - $ref: '#/components/parameters/CompareVersionId'
+      responses:
+        '200':
+          description: The structured field-level comparison
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionComparison'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /teams/{teamId}/drafts/{checkpointId}:
     put:
       operationId: saveDraft
@@ -372,6 +405,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /updates/{versionId}/decisions:
     post:
@@ -493,6 +528,13 @@ components:
       required: true
       schema:
         type: string
+    CompareVersionId:
+      name: compareVersionId
+      in: path
+      required: true
+      description: The other submitted version id to compare against (R14.3).
+      schema:
+        type: string
 
   responses:
     Unauthorized:
@@ -557,6 +599,23 @@ components:
               revision: 13
               updatedAt: '2026-08-26T09:20:00Z'
               updatedBy: t.lead@ptsb.ie
+    Conflict:
+      description: >-
+        The requested lifecycle transition is not valid for the aggregate's
+        current state (e.g. reopening something that is not the current
+        SUBMITTED version, or a second reopen). The operation changes nothing.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: INVALID_STATE
+              message: >-
+                This is not the latest submitted version. Reopen the current
+                version instead.
+              correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
+              fieldErrors: []
 
   schemas:
     # ---------------------------------------------------------------------
@@ -608,10 +667,10 @@ components:
       enum: [CONTRIBUTOR, TEAM_LEAD, LEADERSHIP, ADMIN, AUDITOR]
     AuditAction:
       type: string
-      enum: [DRAFT_SAVED, SUBMITTED, REOPENED, DECISION_RECORDED]
+      enum: [DRAFT_SAVED, SUBMITTED, REOPENED, DECISION_RECORDED, EXPORT_CREATED]
     AuditEntityType:
       type: string
-      enum: [UPDATE, VERSION, DECISION]
+      enum: [UPDATE, VERSION, DECISION, EXPORT]
 
     Count:
       type: integer
@@ -865,11 +924,17 @@ components:
           $ref: '#/components/schemas/UpdatePayload'
     AuditEvent:
       type: object
-      description: Append-only audit document (design.md §4a).
+      description: >-
+        Append-only audit document (design.md §4a). Every lifecycle event for
+        one update (submit, reopen, resubmit, leadership decision) shares the
+        same `aggregateId`, so `GET /updates/{versionId}/audit` returns one
+        unified, newest-first history for the update regardless of each event's
+        `entityId`.
       additionalProperties: false
       required:
         - id
         - programmeId
+        - aggregateId
         - entityType
         - entityId
         - action
@@ -881,6 +946,12 @@ components:
           type: string
         programmeId:
           type: string
+        aggregateId:
+          type: string
+          description: >-
+            Stable update-aggregate key `${teamId}|${sprintId}|${checkpointId}`
+            shared across an update's whole lifecycle. For events not tied to an
+            update aggregate (e.g. EXPORT_CREATED) this carries the programme id.
         entityType:
           $ref: '#/components/schemas/AuditEntityType'
         entityId:
@@ -900,6 +971,12 @@ components:
           minimum: 1
         reason:
           type: string
+        filterSummary:
+          type: string
+          description: >-
+            Short, non-sensitive request-context summary for an event (e.g. the
+            export filter selection). Never contains user-authored update
+            content — only stable ids / enum selections.
         correlationId:
           type: string
     LeadershipDecision:
@@ -924,6 +1001,91 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    # ---------------------------------------------------------------------
+    # Version comparison (server/src/domain/versionComparison.ts, R14.3)
+    # ---------------------------------------------------------------------
+    ComparableValue:
+      description: A single comparable scalar value; absent/empty normalises to null.
+      type: [string, number, 'null']
+    FieldComparison:
+      type: object
+      description: The comparison outcome for one field (previous vs current).
+      additionalProperties: false
+      required: [path, label, previous, current, changed]
+      properties:
+        path:
+          type: string
+          description: Stable dotted path, e.g. `rag.business`, `qualityEvidence.planned`.
+        label:
+          type: string
+          description: Human-readable field label.
+        previous:
+          $ref: '#/components/schemas/ComparableValue'
+        current:
+          $ref: '#/components/schemas/ComparableValue'
+        changed:
+          type: boolean
+    ExceptionChangeType:
+      type: string
+      description: How an exception line changed between the two versions.
+      enum: [ADDED, REMOVED, MODIFIED, UNCHANGED]
+    ExceptionComparison:
+      type: object
+      description: The comparison outcome for one exception, matched by its id.
+      additionalProperties: false
+      required: [id, changeType, fields]
+      properties:
+        id:
+          type: string
+        changeType:
+          $ref: '#/components/schemas/ExceptionChangeType'
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldComparison'
+    VersionRef:
+      type: object
+      description: A lightweight reference to one side of a comparison.
+      additionalProperties: false
+      required: [versionId, versionNumber, submittedBy, submittedAt]
+      properties:
+        versionId:
+          type: string
+        versionNumber:
+          type: integer
+          minimum: 1
+        submittedBy:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+    VersionComparison:
+      type: object
+      description: Structured field-level diff between two immutable versions (R14.3).
+      additionalProperties: false
+      required: [previous, current, fields, exceptions, changedPaths, hasChanges]
+      properties:
+        previous:
+          allOf: [{ $ref: '#/components/schemas/VersionRef' }]
+          description: The earlier version (lower versionNumber).
+        current:
+          allOf: [{ $ref: '#/components/schemas/VersionRef' }]
+          description: The later version (higher versionNumber).
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldComparison'
+        exceptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExceptionComparison'
+        changedPaths:
+          type: array
+          items:
+            type: string
+        hasChanges:
+          type: boolean
 
     # ---------------------------------------------------------------------
     # Hierarchy (src/domain/hierarchy.ts)
@@ -1324,15 +1486,27 @@ components:
           items:
             type: object
             additionalProperties: false
+            description: >-
+              One flattened team row. Draft / Missing / Stale rows are marked
+              visibly via `state` + `isSubmittedEvidence`, so a non-submitted
+              row can never read as current leadership evidence (R16.3).
+              `rag` / `payload` / `derivedRates` are null for a Missing cell
+              (no evidence — never a false Green).
             required:
               - teamId
               - teamName
               - streamId
+              - streamName
               - state
               - isSubmittedEvidence
+              - isStale
               - rag
               - payload
+              - derivedRates
               - sourceCheckpointId
+              - sourceWeekNumber
+              - submittedAt
+              - updatedAt
             properties:
               teamId:
                 type: string
@@ -1340,9 +1514,14 @@ components:
                 type: string
               streamId:
                 type: string
+              streamName:
+                type: string
               state:
                 type: string
+                enum: [MISSING, DRAFT, SUBMITTED, REOPENED, STALE]
               isSubmittedEvidence:
+                type: boolean
+              isStale:
                 type: boolean
               rag:
                 oneOf:
@@ -1352,8 +1531,28 @@ components:
                 oneOf:
                   - $ref: '#/components/schemas/UpdatePayload'
                   - type: 'null'
+              derivedRates:
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [executionRate, passRate]
+                    properties:
+                      executionRate:
+                        type: [number, 'null']
+                      passRate:
+                        type: [number, 'null']
+                  - type: 'null'
               sourceCheckpointId:
                 type: [string, 'null']
+              sourceWeekNumber:
+                type: [integer, 'null']
+                enum: [1, 2, null]
+              submittedAt:
+                type: [string, 'null']
+                format: date-time
+              updatedAt:
+                type: [string, 'null']
+                format: date-time
 
     # ---------------------------------------------------------------------
     # Error envelope (design.md §6)
@@ -1365,6 +1564,7 @@ components:
         - PERMISSION_DENIED
         - WINDOW_CLOSED
         - ALREADY_SUBMITTED
+        - INVALID_STATE
         - NOT_FOUND
         - SAVE_FAILED
         - VALIDATION_FAILED

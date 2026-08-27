@@ -228,6 +228,23 @@ POST /api/v1/updates/{versionId}/decisions
 POST /api/v1/programmes/{programmeId}/exports
 ```
 
+> **Export (PoC scope).** For the local PoC, `POST .../exports` returns a
+> **synchronous structured JSON snapshot** of the filtered Leadership View
+> population in the response body — the agreed export format (R16.1, task 0.2).
+> It reuses the leadership filtered projection (so the export matches the
+> visible population), enforces the programme-permission gate before any
+> programme lookup (anti-enumeration), and appends an append-only
+> `EXPORT_CREATED` security-audit event on success (R15). Asynchronous export
+> **jobs** and downloadable **artifact storage** are intentionally out of scope
+> for the PoC and are **deferred to a future production decision**; R16 does not
+> require them.
+
+> **Update audit history.** `GET /api/v1/updates/{versionId}/audit` returns the
+> **complete, newest-first** audit trail for the whole update the version
+> belongs to (submit, reopen, resubmit and leadership-decision events). Every
+> event shares a stable update-aggregate id (`${teamId}|${sprintId}|
+> ${checkpointId}`); an unknown version id is a `404`, never an empty `200`.
+
 ### Draft update contract
 
 Every `PUT` carries:

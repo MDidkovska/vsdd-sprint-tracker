@@ -89,14 +89,14 @@ Tasks are ordered. Do not begin production persistence before the approved UI be
 - [x] 7.2 Define document collections/containers, stable query fields, indexes, partition/shard strategy, schema-version compatibility, retention and immutable audit storage for hierarchy, assignments, checkpoints, drafts, versions, exceptions, decisions and audit events. (Document-oriented, vendor-neutral — no relational migrations.)
 - [x] 7.2a Scaffold the local Node.js/TypeScript/Fastify backend and MongoDB document adapter, including Docker Compose, environment example, health/readiness checks and persistence integration tests. Do not implement business API endpoints or authentication.
 - [x] 7.3 Implement programme hierarchy and reporting-cycle read endpoints.
-- [ ] 7.4 Implement team draft read/write with optimistic concurrency revision.
-- [ ] 7.5 Implement atomic submit that creates immutable version plus audit event.
-- [ ] 7.6 Implement authorised reopen with mandatory reason.
-- [ ] 7.7 Implement leadership summary and filtered hierarchy projection.
-- [ ] 7.8 Implement version history and field-level comparison data.
-- [ ] 7.9 Implement leadership decision endpoints.
-- [ ] 7.10 Implement structured export job and download authorisation.
-- [ ] 7.11 Add API integration tests including conflicts and rollback.
+- [x] 7.4 Implement team draft read/write with optimistic concurrency revision.
+- [x] 7.5 Implement atomic submit that creates immutable version plus audit event.
+- [x] 7.6 Implement authorised reopen with mandatory reason.
+- [x] 7.7 Implement leadership summary and filtered hierarchy projection.
+- [x] 7.8 Implement version history and field-level comparison data.
+- [x] 7.9 Implement leadership decision endpoints.
+- [x] 7.10 Implement the structured export with programme-level authorisation. For the local PoC this is a SYNCHRONOUS structured JSON snapshot returned in the response body (the agreed export format, task 0.2 / R16.1); it reuses the leadership filtered projection so the export matches the visible population, enforces the programme-permission gate before any programme lookup (anti-enumeration, design.md §13), and appends an append-only `EXPORT_CREATED` security-audit event on success (R15). Asynchronous export jobs and download-artifact storage are explicitly deferred to a future production decision — they are not required by R16 and are out of scope for the PoC.
+- [x] 7.11 Add API integration tests including conflicts and rollback.
 
 ## Phase 8 — Identity and role-based access
 

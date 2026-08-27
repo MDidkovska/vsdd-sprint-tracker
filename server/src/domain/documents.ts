@@ -127,17 +127,58 @@ export interface UpdateVersion {
   payload: UpdatePayload;
 }
 
+/** Lifecycle of a recorded leadership decision. */
+export type DecisionStatus = 'OPEN' | 'CLOSED';
+
+/**
+ * A leadership decision recorded against a specific immutable submitted version
+ * (`decisions` collection, append-only). Recording a decision NEVER mutates the
+ * referenced {@link UpdateVersion} or the team's original leadership ask
+ * (R10.3) — the decision is a separate append-only document. The shape mirrors
+ * the frontend domain type and the OpenAPI `LeadershipDecision` schema exactly.
+ */
+export interface LeadershipDecision {
+  id: string;
+  updateVersionId: string;
+  decision: string;
+  ownerSubject: string;
+  dueDate?: string;
+  status: DecisionStatus;
+  createdAt: string;
+}
+
 export type AuditAction =
   | 'DRAFT_SAVED'
   | 'SUBMITTED'
   | 'REOPENED'
-  | 'DECISION_RECORDED';
+  | 'DECISION_RECORDED'
+  | 'EXPORT_CREATED';
 
-/** Append-only audit document (`auditEvents` collection). */
+export type AuditEntityType = 'UPDATE' | 'VERSION' | 'DECISION' | 'EXPORT';
+
+/**
+ * Append-only audit document (`auditEvents` collection).
+ *
+ * `entityId` still points at the specific entity the event is about (the
+ * submitted version, the mutable draft aggregate, the decision, or — for an
+ * export — the programme). `aggregateId` is the STABLE update-aggregate key
+ * `${teamId}|${sprintId}|${checkpointId}` (see {@link docKey}) shared by every
+ * event in one update's lifecycle — submit, reopen, resubmit and
+ * leadership-decision — so the audit endpoint can return a single unified
+ * history for that update regardless of which entity id each event carries. For
+ * events not tied to an update aggregate (e.g. `EXPORT_CREATED`) `aggregateId`
+ * carries the relevant programme id instead, and never collides with a real
+ * update-aggregate key.
+ */
 export interface AuditEvent {
   id: string;
   programmeId: string;
-  entityType: 'UPDATE' | 'VERSION' | 'DECISION';
+  /**
+   * Stable update-aggregate key shared across an update's whole lifecycle.
+   * For non-update events (export) this is the programme id.
+   */
+  aggregateId: string;
+  entityType: AuditEntityType;
   entityId: string;
   action: AuditAction;
   actorSubject: string;
@@ -145,6 +186,12 @@ export interface AuditEvent {
   previousVersion?: number;
   newVersion?: number;
   reason?: string;
+  /**
+   * A short, NON-SENSITIVE summary of the request context for an event (e.g.
+   * the export filter selection). Must never contain user-authored update
+   * content — only stable ids / enum selections (design.md §14, R15).
+   */
+  filterSummary?: string;
   correlationId: string;
 }
 

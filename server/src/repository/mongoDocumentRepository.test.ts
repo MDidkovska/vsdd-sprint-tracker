@@ -7,13 +7,13 @@
  * (`mongodb-memory-server`) so the suite is always runnable (design.md §4b PoC).
  *
  * Covered:
- *  - connect + readiness ping
+ *  - connect + a transaction-aware readiness ping (replica-set PRIMARY)
  *  - write a draft document and read it back
  *  - optimistic-concurrency revision guard: a stale revision returns a conflict
  *    and overwrites nothing (R11.5)
  *  - append-only immutability for submitted versions and audit events (R14)
  */
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   CURRENT_SCHEMA_VERSION,
@@ -27,25 +27,30 @@ import {
 import { ImmutableViolationError } from './errors.js';
 import { MongoDocumentRepository } from './mongoDocumentRepository.js';
 
-let memoryServer: MongoMemoryServer | undefined;
+let replSet: MongoMemoryReplSet | undefined;
 let repository: MongoDocumentRepository;
 let uri: string;
 const dbName = 'vsdd_poc_test';
 
 beforeAll(async () => {
-  // Prefer an externally provided Mongo (e.g. docker-compose) when present.
+  // Prefer an externally provided Mongo (e.g. the docker-compose replica set)
+  // when present. Otherwise start an in-process SINGLE-NODE REPLICA SET: the
+  // readiness ping now asserts transactional capability (a replica-set PRIMARY
+  // or mongos), and the append-only guarantees below share the same store the
+  // transactional submit/reopen/decision paths rely on. A standalone server
+  // would fail the readiness assertion and cannot run transactions.
   if (process.env.MONGO_TEST_URI) {
     uri = process.env.MONGO_TEST_URI;
   } else {
-    memoryServer = await MongoMemoryServer.create();
-    uri = memoryServer.getUri();
+    replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+    uri = replSet.getUri();
   }
   repository = await MongoDocumentRepository.connect({ uri, dbName });
-});
+}, 120_000);
 
 afterAll(async () => {
   await repository?.close();
-  await memoryServer?.stop();
+  await replSet?.stop();
 });
 
 // Each test uses a distinct team/aggregate id, so no per-test cleanup is needed.
@@ -111,7 +116,9 @@ function makeDraft(
 }
 
 describe('MongoDocumentRepository', () => {
-  it('connects and answers a readiness ping', async () => {
+  it('connects and answers a transaction-aware readiness ping', async () => {
+    // ping() returns true only when the store is reachable AND transactional
+    // (a replica-set PRIMARY / mongos), which gates /ready (task 7 repair).
     await expect(repository.ping()).resolves.toBe(true);
   });
 
@@ -258,11 +265,13 @@ describe('MongoDocumentRepository', () => {
   });
 
   it('appends audit events and rejects duplicates (append-only)', async () => {
+    const aggregateId = docKey('audit-team', 'S14', 'C14-1');
     const event: AuditEvent = {
       id: 'audit-1',
       programmeId: 'vsdd',
+      aggregateId,
       entityType: 'UPDATE',
-      entityId: docKey('audit-team', 'S14', 'C14-1'),
+      entityId: aggregateId,
       action: 'DRAFT_SAVED',
       actorSubject: 'user-md',
       timestamp: new Date().toISOString(),
@@ -276,6 +285,11 @@ describe('MongoDocumentRepository', () => {
     const trail = await repository.listAudit(event.entityId);
     expect(trail).toHaveLength(1);
     expect(trail[0]?.action).toBe('DRAFT_SAVED');
+
+    // The same event is reachable via the unified aggregate query.
+    const aggregateTrail = await repository.listAuditForAggregate(aggregateId);
+    expect(aggregateTrail).toHaveLength(1);
+    expect(aggregateTrail[0]?.id).toBe('audit-1');
 
     await expect(repository.appendAudit(event)).rejects.toBeInstanceOf(
       ImmutableViolationError,

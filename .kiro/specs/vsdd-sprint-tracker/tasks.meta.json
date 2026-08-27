@@ -48,6 +48,107 @@
         "chatSessionId": "sess_859e7ffb-9372-4b10-b4dd-b59ef02af3a7",
         "timestamp": 1787810702727
       }
+    ],
+    "7.4 Implement team draft read/write with optimistic concurrency revision.": [
+      {
+        "executionId": "48d6b234-459c-408e-8535-1cf0a4946424",
+        "chatSessionId": "sess_75abfbcb-09d2-473b-92db-004404f11598",
+        "timestamp": 1787811075106
+      },
+      {
+        "executionId": "48d6b234-459c-408e-8535-1cf0a4946424",
+        "chatSessionId": "sess_75abfbcb-09d2-473b-92db-004404f11598",
+        "timestamp": 1787811727230
+      }
+    ],
+    "7.5 Implement atomic submit that creates immutable version plus audit event.": [
+      {
+        "executionId": "11fc3ca7-aa73-439e-8ad1-dac2d239658d",
+        "chatSessionId": "sess_1a2b0193-63df-49d9-9d3f-88b20b93b663",
+        "timestamp": 1787811742399
+      },
+      {
+        "executionId": "11fc3ca7-aa73-439e-8ad1-dac2d239658d",
+        "chatSessionId": "sess_1a2b0193-63df-49d9-9d3f-88b20b93b663",
+        "timestamp": 1787812683381
+      }
+    ],
+    "7.6 Implement authorised reopen with mandatory reason.": [
+      {
+        "executionId": "75b53797-4e69-40ac-a2ea-331de1db1411",
+        "chatSessionId": "sess_95f03f89-e226-4615-bfbf-5d1da41d62a3",
+        "timestamp": 1787812702859
+      },
+      {
+        "executionId": "75b53797-4e69-40ac-a2ea-331de1db1411",
+        "chatSessionId": "sess_95f03f89-e226-4615-bfbf-5d1da41d62a3",
+        "timestamp": 1787813754208
+      }
+    ],
+    "7.7 Implement leadership summary and filtered hierarchy projection.": [
+      {
+        "executionId": "bea4df06-2383-42a0-ade2-871a7944d443",
+        "chatSessionId": "sess_255fb8cc-da60-462c-aa60-97d5e4b59e85",
+        "timestamp": 1787814338004
+      },
+      {
+        "executionId": "bea4df06-2383-42a0-ade2-871a7944d443",
+        "chatSessionId": "sess_255fb8cc-da60-462c-aa60-97d5e4b59e85",
+        "timestamp": 1787815127403
+      }
+    ],
+    "7.8 Implement version history and field-level comparison data.": [
+      {
+        "executionId": "c5f7eada-0767-4307-b567-cb4bb274a019",
+        "chatSessionId": "sess_bf792879-6cd2-4048-b5e9-1f0c15c71a0b",
+        "timestamp": 1787815143732
+      },
+      {
+        "executionId": "7604811a-ff9a-42fa-8bd5-b6a1cf3b2e50",
+        "chatSessionId": "sess_47481da4-e596-4f4f-bbab-5950e4ed8a0b",
+        "timestamp": 1787822730413
+      },
+      {
+        "executionId": "7604811a-ff9a-42fa-8bd5-b6a1cf3b2e50",
+        "chatSessionId": "sess_47481da4-e596-4f4f-bbab-5950e4ed8a0b",
+        "timestamp": 1787822918201
+      }
+    ],
+    "7.9 Implement leadership decision endpoints.": [
+      {
+        "executionId": "b3f058ab-13f3-4148-b354-a8feff839b1c",
+        "chatSessionId": "sess_2d33946b-95fc-421b-9c5c-cba97107e8e2",
+        "timestamp": 1787818401898
+      },
+      {
+        "executionId": "b3f058ab-13f3-4148-b354-a8feff839b1c",
+        "chatSessionId": "sess_2d33946b-95fc-421b-9c5c-cba97107e8e2",
+        "timestamp": 1787819572982
+      }
+    ],
+    "7.10 Implement structured export job and download authorisation.": [
+      {
+        "executionId": "ff83a490-49ae-4954-bec7-a56f3d910680",
+        "chatSessionId": "sess_37df5b0a-47d8-4781-bf82-13048b288956",
+        "timestamp": 1787819589002
+      },
+      {
+        "executionId": "ff83a490-49ae-4954-bec7-a56f3d910680",
+        "chatSessionId": "sess_37df5b0a-47d8-4781-bf82-13048b288956",
+        "timestamp": 1787820719428
+      }
+    ],
+    "7.11 Add API integration tests including conflicts and rollback.": [
+      {
+        "executionId": "6ecd2edb-c468-4b82-8e30-92096deee234",
+        "chatSessionId": "sess_0ce430c3-74d5-4a09-80d3-33a401b7e442",
+        "timestamp": 1787820797676
+      },
+      {
+        "executionId": "6ecd2edb-c468-4b82-8e30-92096deee234",
+        "chatSessionId": "sess_0ce430c3-74d5-4a09-80d3-33a401b7e442",
+        "timestamp": 1787821258527
+      }
     ]
   }
 }
