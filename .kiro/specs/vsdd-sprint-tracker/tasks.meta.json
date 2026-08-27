@@ -221,6 +221,18 @@
         "chatSessionId": "sess_8d035917-3efc-4013-875b-dd09e2b6b240",
         "timestamp": 1787867253790
       }
+    ],
+    "10.4 Verify draft recovery after a temporary network interruption, a revision conflict or a failed autosave, with no silent data loss (unsaved content stays available for retry).": [
+      {
+        "executionId": "6b0fd120-8f73-4aa5-b524-578c73245846",
+        "chatSessionId": "sess_39e3214b-235e-425b-a395-3ef8027024d0",
+        "timestamp": 1787869256183
+      },
+      {
+        "executionId": "6b0fd120-8f73-4aa5-b524-578c73245846",
+        "chatSessionId": "sess_39e3214b-235e-425b-a395-3ef8027024d0",
+        "timestamp": 1787869568702
+      }
     ]
   }
 }
