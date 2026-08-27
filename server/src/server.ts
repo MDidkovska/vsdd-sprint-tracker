@@ -20,6 +20,7 @@ import { registerCsrfProtection } from './auth/csrf.js';
 import { authorizeRoute, classifyRoute } from './auth/httpAuth.js';
 import { runWithPrincipal } from './auth/requestContext.js';
 import { readSessionToken } from './auth/session.js';
+import { buildLoggerOptions } from './http/logger.js';
 import { registerSecurityHeaders } from './http/securityHeaders.js';
 import {
   ApiError,
@@ -149,14 +150,23 @@ export interface ServerDeps {
 
 export interface BuildServerOptions {
   logLevel?: string;
+  /**
+   * Test seam (task 10.2): a destination stream that captures the structured
+   * log output so tests can assert secrets never appear in it. Production wiring
+   * omits this and lets pino write to stdout.
+   */
+  logStream?: NodeJS.WritableStream;
 }
 
 export function buildServer(
   deps: ServerDeps,
   options: BuildServerOptions = {},
 ): FastifyInstance {
+  // Structured logging that keeps ONLY operational metadata — stable ids, event
+  // type, status and timing — and never a password, session token/cookie or
+  // free-text update content (task 10.2, design.md §2 / §5a).
   const app = Fastify({
-    logger: { level: options.logLevel ?? 'info' },
+    logger: buildLoggerOptions(options.logLevel ?? 'info', options.logStream),
   });
 
   // Serialise every thrown error to the §6 error envelope. A known ApiError
