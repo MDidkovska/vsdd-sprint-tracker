@@ -161,7 +161,14 @@ export type AuditAction =
   | 'USER_SUSPENDED'
   | 'LOGIN_FAILED'
   | 'LOGOUT'
-  | 'ADMIN_BOOTSTRAPPED';
+  | 'ADMIN_BOOTSTRAPPED'
+  // --- programme administration actions (Phase 9, task 9.5) ---
+  /** A stream or team was created or updated (hierarchy admin, R17). */
+  | 'HIERARCHY_CHANGED'
+  /** A sprint was created together with its two weekly checkpoints (R2.1). */
+  | 'SPRINT_CREATED'
+  /** A reporting checkpoint changed (set current / close / reopen window, R2.2/R2.3). */
+  | 'CHECKPOINT_CHANGED';
 
 export type AuditEntityType =
   | 'UPDATE'
@@ -169,7 +176,12 @@ export type AuditEntityType =
   | 'DECISION'
   | 'EXPORT'
   | 'USER'
-  | 'SESSION';
+  | 'SESSION'
+  // --- reference/config entities administered in Phase 9 (task 9.5) ---
+  | 'STREAM'
+  | 'TEAM'
+  | 'SPRINT'
+  | 'CHECKPOINT';
 
 /**
  * Append-only audit document (`auditEvents` collection).

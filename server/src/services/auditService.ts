@@ -71,6 +71,9 @@ const VALID_ACTIONS: readonly AuditAction[] = [
   'LOGIN_FAILED',
   'LOGOUT',
   'ADMIN_BOOTSTRAPPED',
+  'HIERARCHY_CHANGED',
+  'SPRINT_CREATED',
+  'CHECKPOINT_CHANGED',
 ];
 
 export class AuditQueryService implements AuditApi {

@@ -33,6 +33,7 @@ import { registerDecisionRoutes } from './routes/decisionRoutes.js';
 import { registerDraftRoutes } from './routes/draftRoutes.js';
 import { registerExportRoutes } from './routes/exportRoutes.js';
 import { registerHierarchyRoutes } from './routes/hierarchyRoutes.js';
+import { registerHierarchyAdminRoutes } from './routes/hierarchyAdminRoutes.js';
 import { registerNotificationRoutes } from './routes/notificationRoutes.js';
 import { registerReopenRoutes } from './routes/reopenRoutes.js';
 import { registerSubmitRoutes } from './routes/submitRoutes.js';
@@ -45,6 +46,7 @@ import type { DecisionApi } from './services/decisionService.js';
 import type { DraftApi } from './services/draftService.js';
 import type { ExportApi } from './services/exportService.js';
 import type { HierarchyApi } from './services/hierarchyService.js';
+import type { HierarchyAdminApi } from './services/hierarchyAdminService.js';
 import type { NotificationApi } from './services/notificationService.js';
 import type { ReopenApi } from './services/reopenService.js';
 import type { SubmitApi } from './services/submitService.js';
@@ -107,6 +109,12 @@ export interface ServerDeps {
    * /admin/users endpoints.
    */
   admin?: AdminApi;
+  /**
+   * The programme hierarchy / reporting-cycle admin API (task 9.5). Optional;
+   * registers the /admin/streams, /admin/teams, /admin/sprints and
+   * /admin/checkpoints configuration endpoints (Admin only).
+   */
+  hierarchyAdmin?: HierarchyAdminApi;
   /**
    * The read-only audit-history API (Phase 8 repair). Optional; registers
    * GET /audit (Admin/Auditor).
@@ -301,6 +309,11 @@ export function buildServer(
   // Admin approval/assignment endpoints (task 8.2), registered only when wired.
   if (deps.admin) {
     registerAdminRoutes(app, deps.admin);
+  }
+
+  // Programme hierarchy / reporting-cycle admin endpoints (task 9.5), when wired.
+  if (deps.hierarchyAdmin) {
+    registerHierarchyAdminRoutes(app, deps.hierarchyAdmin);
   }
 
   // Read-only audit-history endpoint (Phase 8 repair), registered when wired.

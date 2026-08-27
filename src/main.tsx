@@ -15,6 +15,11 @@ import {
   createMockNotificationClient,
 } from './features/notifications/notificationClient';
 import { VersionClientProvider } from './features/leadership/VersionClientContext';
+import { AdminConfigClientProvider } from './features/admin/AdminConfigClientContext';
+import {
+  createHttpAdminConfigClient,
+  createMockAdminConfigClient,
+} from './features/admin/adminConfigClient';
 import {
   createHttpVersionClient,
   createMockVersionClient,
@@ -55,6 +60,14 @@ const versionClient = useMock
   ? createMockVersionClient(repository)
   : createHttpVersionClient();
 
+// Programme hierarchy / reporting-cycle administration (task 9.5) uses the REAL
+// admin HTTP endpoints by default (session cookie via credentials: 'include',
+// shared API base URL); the mock client is used ONLY under VITE_AUTH_MODE=mock,
+// with no silent fallback -- an unreachable backend surfaces a connection error.
+const adminConfigClient = useMock
+  ? createMockAdminConfigClient()
+  : createHttpAdminConfigClient();
+
 createRoot(rootElement).render(
   <StrictMode>
     <AuthProvider client={authClient}>
@@ -62,9 +75,11 @@ createRoot(rootElement).render(
         <RepositoryProvider repository={repository}>
           <NotificationClientProvider client={notificationClient}>
             <VersionClientProvider client={versionClient}>
+              <AdminConfigClientProvider client={adminConfigClient}>
               <QueryClientProvider client={queryClient}>
                 <App />
               </QueryClientProvider>
+              </AdminConfigClientProvider>
             </VersionClientProvider>
           </NotificationClientProvider>
         </RepositoryProvider>

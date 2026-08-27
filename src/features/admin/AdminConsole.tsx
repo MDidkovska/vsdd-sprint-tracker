@@ -10,16 +10,18 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../../components/Button';
-import { TEAMS } from '../../api/seed';
 import { PROGRAMME_ID } from '../../config';
 import type { Role } from '../../api/repository';
 import { AuthError, type AssignmentInput, type PublicUser } from '../../auth/authClient';
 import { useAuth } from '../../auth/AuthProvider';
 import { AuditHistory } from '../audit/AuditHistory';
+import { HierarchyAdmin } from './HierarchyAdmin';
+import { useAdminConfigClient } from './AdminConfigClientContext';
+import type { Team } from '../../domain/hierarchy';
 import styles from './Admin.module.css';
 
 const ALL_ROLES: Role[] = ['CONTRIBUTOR', 'TEAM_LEAD', 'LEADERSHIP', 'ADMIN', 'AUDITOR'];
-type Tab = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'AUDIT';
+type Tab = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'AUDIT' | 'CONFIG';
 
 interface Draft {
   roles: Set<Role>;
@@ -32,7 +34,9 @@ function draftFor(user: PublicUser): Draft {
 
 export function AdminConsole() {
   const { client } = useAuth();
+  const configClient = useAdminConfigClient();
   const [tab, setTab] = useState<Tab>('PENDING');
+  const [teams, setTeams] = useState<Team[]>([]);
   const [pending, setPending] = useState<PublicUser[]>([]);
   const [active, setActive] = useState<PublicUser[]>([]);
   const [suspended, setSuspended] = useState<PublicUser[]>([]);
@@ -68,6 +72,24 @@ export function AdminConsole() {
     void reload();
   }, [reload]);
 
+  // Active teams for the assignment editor come from the real hierarchy/config
+  // API (mock only under VITE_AUTH_MODE=mock), never the static frontend seed.
+  // Refetching on tab change makes a newly created team immediately assignable.
+  useEffect(() => {
+    let cancelled = false;
+    configClient
+      .listActiveTeams()
+      .then((t) => {
+        if (!cancelled) setTeams(t);
+      })
+      .catch(() => {
+        // Team options unavailable; the editor still renders and other actions work.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [configClient, tab]);
+
   const run = useCallback(
     async (action: () => Promise<PublicUser>) => {
       setError(null);
@@ -95,7 +117,7 @@ export function AdminConsole() {
   }
 
   const rows = useMemo(
-    () => ({ PENDING: pending, ACTIVE: active, SUSPENDED: suspended, AUDIT: [] as PublicUser[] }),
+    () => ({ PENDING: pending, ACTIVE: active, SUSPENDED: suspended, AUDIT: [] as PublicUser[], CONFIG: [] as PublicUser[] }),
     [pending, active, suspended],
   );
 
@@ -104,7 +126,7 @@ export function AdminConsole() {
       <h2 id="admin-title">Admin Console</h2>
 
       <div className={styles.tabs} role="tablist" aria-label="Admin sections">
-        {(['PENDING', 'ACTIVE', 'SUSPENDED', 'AUDIT'] as Tab[]).map((t) => (
+        {(['PENDING', 'ACTIVE', 'SUSPENDED', 'AUDIT', 'CONFIG'] as Tab[]).map((t) => (
           <button
             key={t}
             role="tab"
@@ -117,6 +139,7 @@ export function AdminConsole() {
             {t === 'ACTIVE' && `Active (${active.length})`}
             {t === 'SUSPENDED' && `Suspended (${suspended.length})`}
             {t === 'AUDIT' && 'Audit history'}
+            {t === 'CONFIG' && 'Hierarchy & sprints'}
           </button>
         ))}
       </div>
@@ -130,6 +153,8 @@ export function AdminConsole() {
 
       {tab === 'AUDIT' ? (
         <AuditHistory />
+      ) : tab === 'CONFIG' ? (
+        <HierarchyAdmin />
       ) : (
         <ul className={styles.list} aria-label={`${tab.toLowerCase()} users`}>
           {rows[tab].length === 0 && !loading && (
@@ -174,7 +199,7 @@ export function AdminConsole() {
                     </fieldset>
                     <fieldset className={styles.group}>
                       <legend className={styles.legend}>Teams</legend>
-                      {TEAMS.map((team) => {
+                      {teams.map((team) => {
                         const checked = draft(user.id).teamIds.has(team.id);
                         return (
                           <label key={team.id} className={styles.checkbox}>

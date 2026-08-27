@@ -282,6 +282,254 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /admin/streams:
+    post:
+      operationId: createStream
+      tags: [admin]
+      summary: Create a programme stream (Admin only)
+      description: >-
+        Admin only. Configures the programme hierarchy without a code
+        deployment (R17.1). The programme must exist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStreamInput'
+      responses:
+        '201':
+          description: The created stream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stream'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/streams/{streamId}:
+    put:
+      operationId: updateStream
+      tags: [admin]
+      summary: Update a programme stream (Admin only)
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStreamInput'
+      responses:
+        '200':
+          description: The updated stream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stream'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/teams:
+    post:
+      operationId: createTeam
+      tags: [admin]
+      summary: Create a team within a stream (Admin only)
+      description: >-
+        Admin only. The stream must exist and belong to the programme, and the
+        team name must be unique within the stream for the active period (R17.3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTeamInput'
+      responses:
+        '201':
+          description: The created team.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/teams/{teamId}:
+    put:
+      operationId: updateTeam
+      tags: [admin]
+      summary: Update a team (Admin only)
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTeamInput'
+      responses:
+        '200':
+          description: The updated team.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/sprints:
+    post:
+      operationId: createSprint
+      tags: [admin]
+      summary: Create a sprint with its two weekly checkpoints (Admin only)
+      description: >-
+        Admin only. Creates a sprint together with exactly two weekly reporting
+        checkpoints (R2.1). The programme must exist and the end date must not
+        precede the start date.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSprintInput'
+      responses:
+        '201':
+          description: The created sprint and its two weekly checkpoints.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSprintResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/checkpoints/{checkpointId}/set-current:
+    post:
+      operationId: setCurrentCheckpoint
+      tags: [admin]
+      summary: Make a reporting checkpoint the current one (Admin only)
+      description: >-
+        Admin only. Sets the checkpoint CURRENT and demotes any other current
+        checkpoint of the sprint, so exactly one is CURRENT (R2.2). A closed
+        window cannot be made current.
+      parameters:
+        - name: checkpointId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The now-current checkpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportingCheckpoint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /admin/checkpoints/{checkpointId}/close:
+    post:
+      operationId: closeCheckpoint
+      tags: [admin]
+      summary: Close a reporting window (Admin only)
+      description: >-
+        Admin only. Marks the reporting window CLOSED, which prevents normal
+        edits until an authorised reopen (R2.3).
+      parameters:
+        - name: checkpointId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The closed checkpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportingCheckpoint'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/checkpoints/{checkpointId}/reopen:
+    post:
+      operationId: reopenCheckpoint
+      tags: [admin]
+      summary: Reopen a closed reporting window with a reason (Admin only)
+      description: >-
+        Admin only. Reopens a CLOSED reporting window; a non-empty reason is
+        required and recorded in the audit trail (R2.3).
+      parameters:
+        - name: checkpointId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReopenWindowInput'
+      responses:
+        '200':
+          description: The reopened (current) checkpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportingCheckpoint'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /audit:
     get:
       operationId: listAudit
@@ -1718,6 +1966,100 @@ components:
           format: date-time
         status:
           $ref: '#/components/schemas/CheckpointStatus'
+    CreateStreamInput:
+      type: object
+      additionalProperties: false
+      required: [id, programmeId, name]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        programmeId:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+        sortOrder:
+          type: integer
+    UpdateStreamInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        sortOrder:
+          type: integer
+        active:
+          type: boolean
+    CreateTeamInput:
+      type: object
+      additionalProperties: false
+      required: [id, programmeId, streamId, name]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        programmeId:
+          type: string
+          minLength: 1
+        streamId:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+        sortOrder:
+          type: integer
+    UpdateTeamInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        sortOrder:
+          type: integer
+        active:
+          type: boolean
+    CreateSprintInput:
+      type: object
+      additionalProperties: false
+      required: [id, programmeId, label, startDate, endDate]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        programmeId:
+          type: string
+          minLength: 1
+        label:
+          type: string
+          minLength: 1
+        startDate:
+          type: string
+        endDate:
+          type: string
+    CreateSprintResult:
+      type: object
+      additionalProperties: false
+      required: [sprint, checkpoints]
+      properties:
+        sprint:
+          $ref: '#/components/schemas/Sprint'
+        checkpoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportingCheckpoint'
+    ReopenWindowInput:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
     HierarchyTree:
       type: object
       description: Resolved hierarchy tree returned for Leadership View.

@@ -23,6 +23,7 @@ import { buildReferenceData } from './reference/referenceData.js';
 import { MongoDocumentRepository } from './repository/mongoDocumentRepository.js';
 import { buildServer } from './server.js';
 import { AdminService } from './services/adminService.js';
+import { HierarchyAdminService } from './services/hierarchyAdminService.js';
 import { AuditQueryService } from './services/auditService.js';
 import { AuthService } from './services/authService.js';
 import { DecisionService } from './services/decisionService.js';
@@ -81,6 +82,12 @@ async function main(): Promise<void> {
   // In-app deadline reminders (task 9.1). Reminders are generated lazily and
   // idempotently when the inbox is loaded — no cron/background worker.
   const notifications = new NotificationService(repository, requestAuthContext);
+  // Programme hierarchy / reporting-cycle administration (task 9.5). Admin-only;
+  // configures streams, teams, sprints and reporting checkpoints without deploy.
+  const hierarchyAdmin = new HierarchyAdminService({
+    repository,
+    auth: requestAuthContext,
+  });
 
   const app = buildServer(
     {
@@ -95,6 +102,7 @@ async function main(): Promise<void> {
       exports,
       auth: authService,
       admin: adminService,
+      hierarchyAdmin,
       auditQuery,
       notifications,
       authenticator,

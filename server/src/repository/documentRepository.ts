@@ -233,8 +233,64 @@ export interface DocumentRepository {
   /** Read a single team by id, or null when it does not exist. */
   getTeam(teamId: string): Promise<Team | null>;
 
+  /** Read a single stream by id, or null when it does not exist. */
+  getStream(streamId: string): Promise<Stream | null>;
+
   /** Read a single reporting checkpoint by id, or null when it does not exist. */
   getCheckpoint(checkpointId: string): Promise<ReportingCheckpoint | null>;
+
+  // --- reference / config admin writes (design.md §4a, task 9.5) -----------
+  //
+  // Programme hierarchy and reporting cycle are configurable seed/admin values,
+  // not hard-coded rules (requirements.md §4, R17.1). These primitives let the
+  // Programme-Admin service create/update streams and teams and configure
+  // sprints/checkpoints WITHOUT a code deployment. They are reference/config
+  // documents — never the immutable submitted versions or audit events — so a
+  // stream/team/sprint/checkpoint upsert is an ordinary keyed write, and team
+  // archival (task 9.6) never removes prior versions (R17.2, R17.4). All
+  // validation (unique team name within a stream, exactly two weekly
+  // checkpoints, programme scoping) lives in the service; these are the neutral
+  // storage primitives it builds on.
+
+  /**
+   * Atomically create/update a stream AND append its audit event as ONE unit
+   * (design.md §4a). Both writes commit together or roll back together, so a
+   * hierarchy change never leaves a config document without its audit record,
+   * and never uses sequential independent writes (R17).
+   */
+  saveStreamWithAudit(stream: Stream, audit: AuditEvent): Promise<Stream>;
+
+  /**
+   * Atomically create/update a team AND append its audit event as ONE unit
+   * (design.md §4a). Both writes commit together or roll back together.
+   */
+  saveTeamWithAudit(team: Team, audit: AuditEvent): Promise<Team>;
+
+  /**
+   * Atomically insert a NEW sprint, its (two) weekly checkpoints AND the audit
+   * event as a single indivisible unit (R2.1, design.md §4a). The sprint id must
+   * not already exist — a duplicate is rejected so a sprint is never silently
+   * overwritten. If any write fails the whole unit rolls back, leaving no partial
+   * sprint/checkpoints and no orphan audit event.
+   */
+  createSprint(
+    sprint: Sprint,
+    checkpoints: ReportingCheckpoint[],
+    audit: AuditEvent,
+  ): Promise<{ sprint: Sprint; checkpoints: ReportingCheckpoint[] }>;
+
+  /**
+   * Atomically upsert one or more checkpoints AND append the audit event as a
+   * single indivisible unit, for reporting-window transitions (set-current,
+   * close, reopen). A set-current touches more than one checkpoint (promote the
+   * target, demote the previously current one), so the "exactly one CURRENT"
+   * invariant is never observable as multiple/zero CURRENT: every write commits
+   * together or rolls back together, leaving no orphan audit event (R2.2/R2.3).
+   */
+  saveCheckpointsWithAudit(
+    checkpoints: ReportingCheckpoint[],
+    audit: AuditEvent,
+  ): Promise<ReportingCheckpoint[]>;
 
   // --- update aggregate + append-only stores -------------------------------
 

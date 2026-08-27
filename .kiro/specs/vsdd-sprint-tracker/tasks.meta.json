@@ -149,6 +149,20 @@
         "chatSessionId": "sess_0ce430c3-74d5-4a09-80d3-33a401b7e442",
         "timestamp": 1787821258527
       }
+    ],
+    "9.5 Implement hierarchy, sprint/checkpoint and assignment administration.": [
+      {
+        "executionId": "24965c4c-848b-4f88-a0a0-ffaf05204a0f",
+        "chatSessionId": "sess_3fda579d-511a-42c5-a3c2-564bae61dc93",
+        "timestamp": 1787846813232
+      }
+    ],
+    "9.6 Archive teams without removing historical records.": [
+      {
+        "executionId": "cd1f6d4c-3026-4554-9e4d-dec7fa5f6f7a",
+        "chatSessionId": "sess_b5ff55e2-3131-4d45-aebc-2611b9eba59b",
+        "timestamp": 1787849465354
+      }
     ]
   }
 }

@@ -417,6 +417,115 @@ export class MongoDocumentRepository implements DocumentRepository, IdentityRepo
     return raw ? (stripId(raw) as ReportingCheckpoint) : null;
   }
 
+  async getStream(streamId: string): Promise<Stream | null> {
+    const raw = await this.streams.findOne({ id: streamId });
+    return raw ? (stripId(raw) as Stream) : null;
+  }
+
+  // --- reference / config admin writes (design.md §4a, task 9.5) -----------
+
+  async saveStreamWithAudit(stream: Stream, audit: AuditEvent): Promise<Stream> {
+    // A single transaction makes the config upsert and the append-only audit
+    // event atomic (design.md §4a): a hierarchy change never persists without
+    // its audit record, and never uses sequential independent writes (R17).
+    const session = this.client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await this.streams.replaceOne({ id: stream.id }, { ...stream }, { upsert: true, session });
+        await this.audit.insertOne({ ...audit }, { session });
+      });
+      return stream;
+    } catch (error) {
+      if (error instanceof RepositoryError) throw error;
+      throw new RepositoryError('SAVE_FAILED', 'The stream could not be saved.');
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async saveTeamWithAudit(team: Team, audit: AuditEvent): Promise<Team> {
+    const session = this.client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await this.teams.replaceOne({ id: team.id }, { ...team }, { upsert: true, session });
+        await this.audit.insertOne({ ...audit }, { session });
+      });
+      return team;
+    } catch (error) {
+      if (error instanceof RepositoryError) throw error;
+      throw new RepositoryError('SAVE_FAILED', 'The team could not be saved.');
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async createSprint(
+    sprint: Sprint,
+    checkpoints: ReportingCheckpoint[],
+    audit: AuditEvent,
+  ): Promise<{ sprint: Sprint; checkpoints: ReportingCheckpoint[] }> {
+    // The sprint, its two weekly checkpoints and the audit event are written as
+    // ONE transaction (R2.1, design.md §4a). A NEW sprint is inserted (never
+    // overwritten); a duplicate sprint id (unique `id` index) or any other
+    // failure aborts the transaction, leaving no partial sprint/checkpoints and
+    // no orphan audit event.
+    const session = this.client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await this.sprints.insertOne({ ...sprint }, { session });
+        if (checkpoints.length > 0) {
+          await this.checkpoints.insertMany(
+            checkpoints.map((c) => ({ ...c })),
+            { session },
+          );
+        }
+        await this.audit.insertOne({ ...audit }, { session });
+      });
+      return { sprint, checkpoints };
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        throw new DuplicateKeyError(`A sprint with id "${sprint.id}" already exists.`);
+      }
+      if (error instanceof RepositoryError) throw error;
+      throw new RepositoryError('SAVE_FAILED', 'The sprint could not be created.');
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async saveCheckpointsWithAudit(
+    checkpoints: ReportingCheckpoint[],
+    audit: AuditEvent,
+  ): Promise<ReportingCheckpoint[]> {
+    // Reporting-window transitions upsert every affected checkpoint AND append
+    // the audit event in ONE transaction (design.md §4a): promoting the target
+    // and demoting the previously current checkpoint commit together, so the
+    // "exactly one CURRENT" invariant is never observable as multiple/zero
+    // CURRENT, and a failure leaves no orphan audit event (R2.2/R2.3).
+    const session = this.client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        if (checkpoints.length > 0) {
+          const operations = checkpoints.map((checkpoint) => ({
+            replaceOne: {
+              filter: { id: checkpoint.id },
+              replacement: { ...checkpoint },
+              upsert: true,
+            },
+          })) as unknown as AnyBulkWriteOperation<ReportingCheckpoint>[];
+          await this.checkpoints.bulkWrite(operations, { ordered: true, session });
+        }
+        await this.audit.insertOne({ ...audit }, { session });
+      });
+      return checkpoints;
+    } catch (error) {
+      if (error instanceof RepositoryError) throw error;
+      throw new RepositoryError('SAVE_FAILED', 'The checkpoint change could not be saved.');
+    } finally {
+      await session.endSession();
+    }
+  }
+
   async getDraft(id: string): Promise<UpdateDocument | null> {
     const raw = await this.updates.findOne({ id });
     return raw ? (stripId(raw) as UpdateDocument) : null;
