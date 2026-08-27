@@ -4,6 +4,7 @@
  *   PUT  /api/v1/admin/streams/{streamId}
  *   POST /api/v1/admin/teams
  *   PUT  /api/v1/admin/teams/{teamId}
+ *   POST /api/v1/admin/teams/{teamId}/archive
  *   POST /api/v1/admin/sprints
  *   POST /api/v1/admin/checkpoints/{checkpointId}/set-current
  *   POST /api/v1/admin/checkpoints/{checkpointId}/close
@@ -144,6 +145,15 @@ export function registerHierarchyAdminRoutes(
     { schema: { body: UPDATE_TEAM_SCHEMA } },
     async (request) => {
       return api.updateTeam({ ...request.body, id: request.params.teamId });
+    },
+  );
+
+  // Archive a team (task 9.6, R17.2/R17.4): non-destructive — marks the team
+  // inactive and stamps `archivedAt` without removing any historical record.
+  app.post<{ Params: TeamParams }>(
+    `${API_BASE_PATH}/admin/teams/:teamId/archive`,
+    async (request) => {
+      return api.archiveTeam(request.params.teamId);
     },
   );
 

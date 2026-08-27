@@ -101,6 +101,7 @@ export interface HierarchyAdminApi {
   updateStream(input: UpdateStreamInput): Promise<Stream>;
   createTeam(input: CreateTeamInput): Promise<Team>;
   updateTeam(input: UpdateTeamInput): Promise<Team>;
+  archiveTeam(teamId: string): Promise<Team>;
   createSprint(
     input: CreateSprintInput,
   ): Promise<{ sprint: Sprint; checkpoints: ReportingCheckpoint[] }>;
@@ -281,6 +282,69 @@ export class HierarchyAdminService implements HierarchyAdminApi {
     };
     const audit = this.buildAudit(actor, 'HIERARCHY_CHANGED', 'TEAM', updated.id, stream.programmeId);
     return this.repository.saveTeamWithAudit(updated, audit);
+  }
+
+  /**
+   * Archive a team (R17.2, R17.4). Archival is a NON-DESTRUCTIVE reference/config
+   * write: it marks the team inactive and stamps `archivedAt`, but NEVER removes
+   * the team document, its prior submitted {@link UpdateVersion}s, drafts,
+   * exceptions, decisions or audit events. An archived team drops out of the
+   * ACTIVE hierarchy/reporting projection (the read services already filter on
+   * `team.active`), while its historical submitted versions and audit history
+   * stay fully readable through the version/audit endpoints (design.md §4a).
+   *
+   * Programme-scoped and anti-enumeration: a phantom team id, or a team whose
+   * stream belongs to another programme than the admin's, is rejected as
+   * VALIDATION_FAILED with the same message so an id cannot be probed. Archiving
+   * an already-archived team is idempotent — it returns the team unchanged and
+   * appends no further audit event. The write bundles the config change and the
+   * append-only audit event as one atomic unit (design.md §4a).
+   */
+  async archiveTeam(teamId: string): Promise<Team> {
+    const actor = this.requireAdmin();
+    if (!teamId || !teamId.trim()) {
+      throw ApiError.validation('A team is required.', [
+        { path: 'teamId', message: 'A team is required.' },
+      ]);
+    }
+    // Resolve the team + its stream. A phantom id or a stream in another
+    // programme is reported with the SAME validation error so an id cannot be
+    // enumerated across programmes (design.md §5a anti-enumeration).
+    const rejectUnknown = (): never => {
+      throw ApiError.validation(`Unknown team: ${teamId}.`, [
+        { path: 'teamId', message: `Unknown team: ${teamId}.` },
+      ]);
+    };
+    const existing = await this.repository.getTeam(teamId);
+    if (!existing) {
+      rejectUnknown();
+    }
+    const team = existing as Team;
+    const stream = await this.repository.getStream(team.streamId);
+    if (!stream) {
+      rejectUnknown();
+    }
+    const owningStream = stream as Stream;
+    if (actor.programmeId && owningStream.programmeId !== actor.programmeId) {
+      rejectUnknown();
+    }
+    // Idempotent: an already-archived team is returned untouched (no new audit).
+    if (!team.active && team.archivedAt) {
+      return team;
+    }
+    const archived: Team = {
+      ...team,
+      active: false,
+      archivedAt: new Date(this.now()).toISOString(),
+    };
+    const audit = this.buildAudit(
+      actor,
+      'HIERARCHY_CHANGED',
+      'TEAM',
+      archived.id,
+      owningStream.programmeId,
+    );
+    return this.repository.saveTeamWithAudit(archived, audit);
   }
 
   async createSprint(

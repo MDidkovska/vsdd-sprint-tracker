@@ -57,6 +57,7 @@ export function HierarchyAdmin() {
   const [teamId, setTeamId] = useState('');
   const [teamStreamId, setTeamStreamId] = useState('');
   const [teamName, setTeamName] = useState('');
+  const [archiveTeamId, setArchiveTeamId] = useState('');
   const [sprintId, setSprintId] = useState('');
   const [sprintLabel, setSprintLabel] = useState('');
   const [sprintStart, setSprintStart] = useState('');
@@ -132,6 +133,24 @@ export function HierarchyAdmin() {
           }
         >
           Create team
+        </Button>
+      </fieldset>
+
+      <fieldset className={styles.group}>
+        <legend className={styles.legend}>Archive team (keeps historical records)</legend>
+        <Field label="Archive team id" value={archiveTeamId} onChange={setArchiveTeamId} />
+        <Button
+          type="button"
+          variant="secondary"
+          small
+          onClick={() =>
+            void run(
+              () => client.archiveTeam(archiveTeamId),
+              'Team archived. Its historical submissions remain available.',
+            )
+          }
+        >
+          Archive team
         </Button>
       </fieldset>
 

@@ -86,6 +86,13 @@ export interface AdminConfigClient {
   updateStream(streamId: string, input: UpdateStreamInput): Promise<Stream>;
   createTeam(input: CreateTeamInput): Promise<Team>;
   updateTeam(teamId: string, input: UpdateTeamInput): Promise<Team>;
+  /**
+   * Archive a team (R17.2, R17.4). Non-destructive: the backend marks the team
+   * inactive and stamps `archivedAt` without removing any historical record, so
+   * it drops out of {@link listActiveTeams} while its versions/audit stay
+   * readable. Returns the archived (inactive) team.
+   */
+  archiveTeam(teamId: string): Promise<Team>;
   createSprint(
     input: CreateSprintInput,
   ): Promise<{ sprint: Sprint; checkpoints: ReportingCheckpoint[] }>;
@@ -178,6 +185,10 @@ export function createHttpAdminConfigClient(
       request<Team>(`/admin/teams/${encodeURIComponent(teamId)}`, {
         method: 'PUT',
         body: JSON.stringify(input),
+      }),
+    archiveTeam: (teamId) =>
+      request<Team>(`/admin/teams/${encodeURIComponent(teamId)}/archive`, {
+        method: 'POST',
       }),
     createSprint: (input) =>
       request<{ sprint: Sprint; checkpoints: ReportingCheckpoint[] }>('/admin/sprints', {
@@ -322,6 +333,21 @@ export function createMockAdminConfigClient(): AdminConfigClient {
       };
       teams.set(updated.id, updated);
       return updated;
+    },
+    async archiveTeam(teamId) {
+      const existing = teams.get(teamId);
+      if (!existing) throw new AdminConfigError('VALIDATION_FAILED', `Unknown team: ${teamId}.`);
+      // Non-destructive: mark inactive + stamp archivedAt so the team drops out
+      // of listActiveTeams, mirroring the backend. Idempotent for an already
+      // archived team.
+      if (!existing.active && existing.archivedAt) return existing;
+      const archived: Team = {
+        ...existing,
+        active: false,
+        archivedAt: new Date().toISOString(),
+      };
+      teams.set(archived.id, archived);
+      return archived;
     },
     async createSprint(input) {
       if (!input.label.trim()) {

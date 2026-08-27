@@ -179,6 +179,45 @@ describe('hierarchy-admin routes', () => {
     await app.close();
   });
 
+  it('POST /admin/teams/:id/archive returns 200 with the archived (inactive) team', async () => {
+    const repo = new FakeRepo();
+    repo.teams.set('mmm-a', { id: 'mmm-a', streamId: 'MMM', name: 'MMM A', sortOrder: 1, active: true });
+    const { app } = build(principal(), repo);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/teams/mmm-a/archive',
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.active).toBe(false);
+    expect(body.archivedAt).toBeTruthy();
+    await app.close();
+  });
+
+  it('refuses archiving for a non-admin caller with 403 PERMISSION_DENIED', async () => {
+    const repo = new FakeRepo();
+    repo.teams.set('mmm-a', { id: 'mmm-a', streamId: 'MMM', name: 'MMM A', sortOrder: 1, active: true });
+    const { app } = build(principal({ roles: ['CONTRIBUTOR'], roleLabel: 'Contributor' }), repo);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/teams/mmm-a/archive',
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('PERMISSION_DENIED');
+    await app.close();
+  });
+
+  it('maps a phantom team id on archive to a 400 VALIDATION_FAILED envelope', async () => {
+    const { app } = build(principal());
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/teams/ghost/archive',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION_FAILED');
+    await app.close();
+  });
+
   it('POST /admin/checkpoints/:id/reopen requires a reason (400)', async () => {
     const repo = new FakeRepo();
     repo.checkpoints.set('S16-W1', {

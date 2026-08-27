@@ -184,6 +184,73 @@ describe('HierarchyAdminService teams', () => {
   });
 });
 
+describe('HierarchyAdminService team archival (R17.2)', () => {
+  it('archives a team non-destructively: inactive + archivedAt + audit, document retained', async () => {
+    await service.createTeam({ id: 'mmm-a', programmeId: 'vsdd', streamId: 'MMM', name: 'MMM A' });
+    const before = repo.audits.length;
+
+    const archived = await service.archiveTeam('mmm-a');
+
+    expect(archived.active).toBe(false);
+    expect(archived.archivedAt).toBeTruthy();
+    // The team document is still present — archival never deletes it.
+    expect(repo.teams.get('mmm-a')).toBeTruthy();
+    expect(repo.teams.get('mmm-a')?.active).toBe(false);
+    // Exactly one append-only audit event was added for the archive.
+    expect(repo.audits.length).toBe(before + 1);
+    expect(
+      repo.audits.some(
+        (e) => e.action === 'HIERARCHY_CHANGED' && e.entityType === 'TEAM' && e.entityId === 'mmm-a',
+      ),
+    ).toBe(true);
+  });
+
+  it('frees the team name for reuse once archived (R17.3)', async () => {
+    await service.createTeam({ id: 'mmm-a', programmeId: 'vsdd', streamId: 'MMM', name: 'MMM A' });
+    await service.archiveTeam('mmm-a');
+    // A new active team can reuse the archived team's name.
+    const reused = await service.createTeam({
+      id: 'mmm-a2',
+      programmeId: 'vsdd',
+      streamId: 'MMM',
+      name: 'MMM A',
+    });
+    expect(reused.active).toBe(true);
+  });
+
+  it('is idempotent: archiving twice appends no further audit event', async () => {
+    await service.createTeam({ id: 'mmm-a', programmeId: 'vsdd', streamId: 'MMM', name: 'MMM A' });
+    await service.archiveTeam('mmm-a');
+    const afterFirst = repo.audits.length;
+    const again = await service.archiveTeam('mmm-a');
+    expect(again.active).toBe(false);
+    expect(repo.audits.length).toBe(afterFirst);
+  });
+
+  it('rejects a phantom team id with VALIDATION_FAILED (no enumeration)', async () => {
+    await expect(service.archiveTeam('ghost')).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+    });
+  });
+
+  it('rejects a cross-programme team id with VALIDATION_FAILED', async () => {
+    // A team living under another programme's stream must not be archivable by
+    // this programme's admin, and is refused with the same message as a phantom.
+    repo.teams.set('other-team', {
+      id: 'other-team',
+      streamId: 'OTHER-S',
+      name: 'Other Team',
+      sortOrder: 1,
+      active: true,
+    });
+    await expect(service.archiveTeam('other-team')).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+    });
+    // The cross-programme team is untouched.
+    expect(repo.teams.get('other-team')?.active).toBe(true);
+  });
+});
+
 describe('HierarchyAdminService sprints + checkpoints', () => {
   it('creates a sprint with exactly two weekly checkpoints', async () => {
     const { sprint, checkpoints } = await service.createSprint({
@@ -296,6 +363,9 @@ describe('HierarchyAdminService authorisation (default-deny)', () => {
       }),
     ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
     await expect(service.setCurrentCheckpoint('S16-W1')).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
+    await expect(service.archiveTeam('mmm-a')).rejects.toMatchObject({
       code: 'PERMISSION_DENIED',
     });
   });

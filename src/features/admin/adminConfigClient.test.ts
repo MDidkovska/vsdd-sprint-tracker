@@ -76,6 +76,25 @@ describe('createMockAdminConfigClient', () => {
     expect(after.some((t) => t.id === 'new-team' && t.active)).toBe(true);
   });
 
+  it('archives a team so it drops out of the active team listing (R17.2)', async () => {
+    const client = createMockAdminConfigClient();
+    await client.createTeam({ id: 'arch-a', programmeId: 'vsdd', streamId: 'MMM', name: 'Archive A' });
+    expect((await client.listActiveTeams()).some((t) => t.id === 'arch-a')).toBe(true);
+
+    const archived = await client.archiveTeam('arch-a');
+    expect(archived.active).toBe(false);
+    expect(archived.archivedAt).toBeTruthy();
+    expect((await client.listActiveTeams()).some((t) => t.id === 'arch-a')).toBe(false);
+    // The archived team name is free to reuse for a new active team (R17.3).
+    const reused = await client.createTeam({
+      id: 'arch-a2',
+      programmeId: 'vsdd',
+      streamId: 'MMM',
+      name: 'Archive A',
+    });
+    expect(reused.active).toBe(true);
+  });
+
   it('requires a reason to reopen a closed window', async () => {
     const client = createMockAdminConfigClient();
     await client.createSprint({
@@ -131,6 +150,29 @@ describe('createHttpAdminConfigClient', () => {
     expect(teams.map((t) => t.id)).toEqual(['mmm-a']);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('http://api.test/programmes/vsdd/hierarchy');
+    expect(init.credentials).toBe('include');
+  });
+
+  it('archiveTeam POSTs to the team archive endpoint with credentials', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: 'mmm-a',
+        streamId: 'MMM',
+        name: 'MMM A',
+        sortOrder: 1,
+        active: false,
+        archivedAt: '2026-01-05T00:00:00.000Z',
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const client = createHttpAdminConfigClient('http://api.test');
+    const archived = await client.archiveTeam('mmm-a');
+    expect(archived.active).toBe(false);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://api.test/admin/teams/mmm-a/archive');
+    expect(init.method).toBe('POST');
     expect(init.credentials).toBe('include');
   });
 

@@ -162,6 +162,28 @@
         "executionId": "cd1f6d4c-3026-4554-9e4d-dec7fa5f6f7a",
         "chatSessionId": "sess_b5ff55e2-3131-4d45-aebc-2611b9eba59b",
         "timestamp": 1787849465354
+      },
+      {
+        "executionId": "c062d1b0-0d7c-40fa-92f9-a8cc60d5039d",
+        "chatSessionId": "sess_e8f57a27-03c6-47cd-9525-6ff0993e8ccb",
+        "timestamp": 1787862736010
+      },
+      {
+        "executionId": "c062d1b0-0d7c-40fa-92f9-a8cc60d5039d",
+        "chatSessionId": "sess_e8f57a27-03c6-47cd-9525-6ff0993e8ccb",
+        "timestamp": 1787863484912
+      }
+    ],
+    "9.7 Add admin and audit-role tests.": [
+      {
+        "executionId": "bed1df14-3224-4eee-b5ca-47afabec6b5f",
+        "chatSessionId": "sess_9353cfb9-a175-4bd0-834e-1f1c8fcd31f5",
+        "timestamp": 1787863565394
+      },
+      {
+        "executionId": "bed1df14-3224-4eee-b5ca-47afabec6b5f",
+        "chatSessionId": "sess_9353cfb9-a175-4bd0-834e-1f1c8fcd31f5",
+        "timestamp": 1787864228066
       }
     ]
   }

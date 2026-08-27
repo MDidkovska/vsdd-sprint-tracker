@@ -33,6 +33,15 @@ describe('HierarchyAdmin', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/Stream created/i);
   });
 
+  it('archives a team and confirms historical records remain available', async () => {
+    const client = createMockAdminConfigClient();
+    await client.createTeam({ id: 'arch-a', programmeId: 'vsdd', streamId: 'MMM', name: 'Archive A' });
+    renderWith(client);
+    await userEvent.type(screen.getByLabelText('Archive team id'), 'arch-a');
+    await userEvent.click(screen.getByRole('button', { name: 'Archive team' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(/historical submissions remain/i);
+  });
+
   it('surfaces an explicit connection error', async () => {
     const failing: AdminConfigClient = {
       ...createMockAdminConfigClient(),

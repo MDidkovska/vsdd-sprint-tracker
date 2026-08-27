@@ -404,6 +404,40 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /admin/teams/{teamId}/archive:
+    post:
+      operationId: archiveTeam
+      tags: [admin]
+      summary: Archive a team without removing historical records (Admin only)
+      description: >-
+        Admin only. Non-destructive archival (R17.2, R17.4): marks the team
+        inactive and stamps `archivedAt` so it drops out of the active
+        hierarchy/reporting projection, while its historical submitted versions
+        and audit history remain fully readable. The team document, prior
+        versions, drafts, exceptions, decisions and audit events are never
+        deleted. Programme-scoped and anti-enumeration: a phantom or
+        cross-programme team id is rejected with VALIDATION_FAILED. Archiving an
+        already-archived team is idempotent.
+      parameters:
+        - name: teamId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The archived (inactive) team with its archivedAt timestamp.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /admin/sprints:
     post:
       operationId: createSprint
