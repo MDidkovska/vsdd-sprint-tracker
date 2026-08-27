@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+*.local
+
+# Local environment — never commit real values
+.env
+
+# mongodb-memory-server downloaded binaries cache (if configured locally)
+.cache
+.mongodb-binaries

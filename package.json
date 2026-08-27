@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=22.12.0"
   },
+  "workspaces": [
+    "server"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -17,7 +20,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "validate:openapi": "redocly lint openapi/vsdd-sprint-tracker.openapi.yaml",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm run validate:openapi && npm run build"
+    "verify:frontend": "npm run lint && npm run typecheck && npm run test && npm run validate:openapi && npm run build",
+    "verify": "npm run verify:frontend && npm run verify --workspace server"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

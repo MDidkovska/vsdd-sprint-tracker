@@ -1,0 +1,41 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "7.1 Define OpenAPI 3.1 schemas matching the frontend domain types.": [
+      {
+        "executionId": "56db364d-ee49-421a-b179-66db1e1104cf",
+        "chatSessionId": "sess_5899859a-ef10-4cd7-b65f-99bbbca46f34",
+        "timestamp": 1787790809293
+      },
+      {
+        "executionId": "56db364d-ee49-421a-b179-66db1e1104cf",
+        "chatSessionId": "sess_5899859a-ef10-4cd7-b65f-99bbbca46f34",
+        "timestamp": 1787791263510
+      }
+    ],
+    "7.2 Define document collections/containers, stable query fields, indexes, partition/shard strategy, schema-version compatibility, retention and immutable audit storage for hierarchy, assignments, checkpoints, drafts, versions, exceptions, decisions and audit events. (Document-oriented, vendor-neutral — no relational migrations.)": [
+      {
+        "executionId": "9030eea9-6af4-42b8-82a4-9a519d9c4389",
+        "chatSessionId": "sess_24d7a1c3-9bd5-43f2-936e-13026f0c4cac",
+        "timestamp": 1787791396121
+      },
+      {
+        "executionId": "9030eea9-6af4-42b8-82a4-9a519d9c4389",
+        "chatSessionId": "sess_24d7a1c3-9bd5-43f2-936e-13026f0c4cac",
+        "timestamp": 1787791767731
+      }
+    ],
+    "7.2a Scaffold the local Node.js/TypeScript/Fastify backend and MongoDB document adapter, including Docker Compose, environment example, health/readiness checks and persistence integration tests. Do not implement business API endpoints or authentication.": [
+      {
+        "executionId": "5cb3f2e9-8ae8-49bd-94ff-93af100ab4a1",
+        "chatSessionId": "sess_a9f0b353-9559-461a-be89-c33281907c3a",
+        "timestamp": 1787792328570
+      },
+      {
+        "executionId": "5cb3f2e9-8ae8-49bd-94ff-93af100ab4a1",
+        "chatSessionId": "sess_a9f0b353-9559-461a-be89-c33281907c3a",
+        "timestamp": 1787793377702
+      }
+    ]
+  }
+}
