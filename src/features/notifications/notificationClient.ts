@@ -15,6 +15,7 @@
  * the auth connection-error behaviour).
  */
 import { resolveApiBaseUrl } from '../../auth/authClient';
+import { csrfHeaders } from '../../lib/csrf';
 import type { Repository } from '../../api/repository';
 import type { Notification, NotificationInbox } from '../../domain/notifications';
 
@@ -63,8 +64,12 @@ export function createHttpNotificationClient(
     try {
       res = await fetch(`${baseUrl}${path}`, {
         credentials: 'include',
-        headers: { 'content-type': 'application/json' },
         ...init,
+        headers: {
+          'content-type': 'application/json',
+          ...csrfHeaders(init.method),
+          ...init.headers,
+        },
       });
     } catch {
       // Network / DNS / CORS failure: surface an explicit connection error —

@@ -12,6 +12,7 @@
  * root — the screens never change.
  */
 import type { AccountStatus, CurrentUser, Role } from '../api/repository';
+import { csrfHeaders } from '../lib/csrf';
 
 export interface PublicUser {
   id: string;
@@ -146,8 +147,12 @@ export function createHttpAuthClient(baseUrl = resolveApiBaseUrl()): AuthClient 
     const { allow401, ...rest } = init;
     const res = await fetch(`${baseUrl}${path}`, {
       credentials: 'include',
-      headers: { 'content-type': 'application/json' },
       ...rest,
+      headers: {
+        'content-type': 'application/json',
+        ...csrfHeaders(rest.method),
+        ...rest.headers,
+      },
     });
     if (res.status === 401 && allow401) {
       return null as T;

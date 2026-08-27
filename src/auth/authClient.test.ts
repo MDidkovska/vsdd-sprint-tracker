@@ -38,6 +38,21 @@ describe('createHttpAuthClient', () => {
     expect(call[1]?.credentials).toBe('include');
   });
 
+  it('echoes the CSRF token in the X-CSRF-Token header on state-changing requests', async () => {
+    document.cookie = 'vsdd_csrf=csrf-tok; Path=/';
+    const fetchMock = vi.fn((_url: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(jsonResponse(200, {})),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = createHttpAuthClient('/api/v1');
+    await client.logout();
+
+    const headers = fetchMock.mock.calls[0]![1]?.headers as Record<string, string>;
+    expect(headers['X-CSRF-Token']).toBe('csrf-tok');
+    document.cookie = 'vsdd_csrf=; Max-Age=0; Path=/';
+  });
+
   it('treats 401 on /me as anonymous (null), not an error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(401, { error: { code: 'SESSION_EXPIRED' } })));
     const client = createHttpAuthClient('/api/v1');

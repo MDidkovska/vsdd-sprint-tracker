@@ -91,6 +91,17 @@ describe('auth routes', () => {
     await app.close();
   });
 
+  it('does NOT mark the cookie Secure in local development (plain-HTTP dev)', async () => {
+    const app = build(fakeApi(), false);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'u1@example.com', password: 'a-good-password' },
+    });
+    expect(res.headers['set-cookie'] as string).not.toContain('Secure');
+    await app.close();
+  });
+
   it('marks the cookie Secure when secureCookies is enabled', async () => {
     const app = build(fakeApi(), true);
     const res = await app.inject({

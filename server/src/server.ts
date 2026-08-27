@@ -16,9 +16,11 @@
  */
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { RequestAuthenticator } from './auth/authenticator.js';
+import { registerCsrfProtection } from './auth/csrf.js';
 import { authorizeRoute, classifyRoute } from './auth/httpAuth.js';
 import { runWithPrincipal } from './auth/requestContext.js';
 import { readSessionToken } from './auth/session.js';
+import { registerSecurityHeaders } from './http/securityHeaders.js';
 import {
   ApiError,
   DraftRevisionConflictError,
@@ -136,6 +138,13 @@ export interface ServerDeps {
   authenticator?: RequestAuthenticator;
   /** Session cookie settings used by the auth routes. */
   authConfig?: AuthRoutesConfig;
+  /**
+   * Enable CSRF double-submit protection for state-changing requests (task
+   * 10.1). Enabled by the real composition root (index.ts); left off for
+   * endpoint unit tests that inject routes directly without a browser client.
+   * The dedicated CSRF tests opt in explicitly.
+   */
+  csrfProtection?: boolean;
 }
 
 export interface BuildServerOptions {
@@ -187,6 +196,21 @@ export function buildServer(
         : 'Something needs attention on the server. Please try again shortly.';
     return toErrorEnvelope(code, message, correlationId);
   });
+
+  // Minimal security headers (task 10.1): a lean CSP plus companions on every
+  // response. Additive and HTTPS-independent, so it never breaks plain-HTTP
+  // local development or the separately-served Vite dev app.
+  registerSecurityHeaders(app);
+
+  // CSRF double-submit protection (task 10.1). Registered BEFORE the auth hook
+  // so a forged state-changing request is rejected before any session lookup.
+  // The token cookie's Secure flag tracks the session cookie so plain-HTTP local
+  // dev keeps working.
+  if (deps.csrfProtection) {
+    registerCsrfProtection(app, {
+      secureCookies: deps.authConfig?.secureCookies ?? false,
+    });
+  }
 
   // Authentication + edge authorisation hook (task 8.1/8.4). Registered only
   // when an authenticator is wired. It resolves the session cookie into a

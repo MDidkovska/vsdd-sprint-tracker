@@ -185,6 +185,18 @@
         "chatSessionId": "sess_9353cfb9-a175-4bd0-834e-1f1c8fcd31f5",
         "timestamp": 1787864228066
       }
+    ],
+    "10.1 Secure the local-auth baseline: HttpOnly/SameSite session cookies, `Secure` cookies in production, CSRF protection for state-changing requests, output encoding for user-authored text and a minimal Content-Security-Policy. Preserve plain-HTTP local development (Secure cookies stay off locally).": [
+      {
+        "executionId": "2b8cb8d5-3f0a-4732-a5e4-fbccc207b3da",
+        "chatSessionId": "sess_9520ae7e-e6d4-4d2d-9392-ac04a67aee2a",
+        "timestamp": 1787865206612
+      },
+      {
+        "executionId": "2b8cb8d5-3f0a-4732-a5e4-fbccc207b3da",
+        "chatSessionId": "sess_9520ae7e-e6d4-4d2d-9392-ac04a67aee2a",
+        "timestamp": 1787866107150
+      }
     ]
   }
 }

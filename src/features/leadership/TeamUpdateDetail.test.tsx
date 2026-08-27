@@ -92,6 +92,27 @@ describe('TeamUpdateDetail evidence', () => {
     expect(screen.getByText(/Rule approved\./)).toBeInTheDocument();
   });
 
+  it('renders user-authored text as inert text, never as HTML (output encoding)', () => {
+    // A malicious payload in a free-text field must be shown verbatim, not
+    // parsed into DOM nodes or executed (design.md §13 output encoding).
+    const injection = '<img src=x onerror="alert(1)"><script>alert(2)</script>';
+    const { container } = render(
+      <TeamUpdateDetail
+        cell={cell({ payload: payload({ leadershipAsk: injection }) })}
+        sprintLabel="Sprint 14"
+        weekNumber={1}
+        canDecide={false}
+        decisions={[]}
+        onRecordDecision={noop}
+      />,
+    );
+    // The exact string is present as text content...
+    expect(screen.getByText(injection)).toBeInTheDocument();
+    // ...and no element was created from it.
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelector('script')).toBeNull();
+  });
+
   it('shows a no-current-evidence state for a Missing cell (never Green)', () => {
     render(
       <TeamUpdateDetail

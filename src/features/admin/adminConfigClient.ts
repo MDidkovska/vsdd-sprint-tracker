@@ -14,6 +14,7 @@
  * HTTP client throws a CONNECTION_ERROR the UI surfaces explicitly.
  */
 import { resolveApiBaseUrl } from '../../auth/authClient';
+import { csrfHeaders } from '../../lib/csrf';
 import { PROGRAMME_ID } from '../../config';
 import type {
   HierarchyTree,
@@ -139,8 +140,12 @@ export function createHttpAdminConfigClient(
     try {
       res = await fetch(`${baseUrl}${path}`, {
         credentials: 'include',
-        headers: { 'content-type': 'application/json' },
         ...init,
+        headers: {
+          'content-type': 'application/json',
+          ...csrfHeaders(init.method),
+          ...init.headers,
+        },
       });
     } catch {
       throw new AdminConfigError(

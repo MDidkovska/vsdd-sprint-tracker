@@ -110,6 +110,10 @@ async function main(): Promise<void> {
         secureCookies: config.secureCookies,
         sessionTtlSeconds: config.sessionTtlHours * 3600,
       },
+      // Enforce CSRF double-submit protection for state-changing requests in the
+      // real running server (task 10.1). The SPA echoes the token cookie back in
+      // the X-CSRF-Token header.
+      csrfProtection: true,
     },
     { logLevel: config.logLevel },
   );

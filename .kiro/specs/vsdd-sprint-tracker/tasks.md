@@ -154,7 +154,7 @@ threat-model/security approval are explicitly deferred to Phase B, alongside the
 OIDC, production database and hosting decisions (see task 0.2). Do not treat the
 PoC as production-ready.
 
-- [ ] 10.1 Secure the local-auth baseline: HttpOnly/SameSite session cookies, `Secure` cookies in production, CSRF protection for state-changing requests, output encoding for user-authored text and a minimal Content-Security-Policy. Preserve plain-HTTP local development (Secure cookies stay off locally).
+- [x] 10.1 Secure the local-auth baseline: HttpOnly/SameSite session cookies, `Secure` cookies in production, CSRF protection for state-changing requests, output encoding for user-authored text and a minimal Content-Security-Policy. Preserve plain-HTTP local development (Secure cookies stay off locally).
 - [ ] 10.2 Ensure logs never contain passwords, session tokens or free-text update content; retain only structured operational metadata (stable ids, event type, status, timing).
 - [ ] 10.3 Apply minimal abuse protection to login, registration and export: rate limiting plus generic responses that prevent account or programme-data enumeration.
 - [ ] 10.4 Verify draft recovery after a temporary network interruption, a revision conflict or a failed autosave, with no silent data loss (unsaved content stays available for retry).
