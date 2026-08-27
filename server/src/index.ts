@@ -77,8 +77,15 @@ async function main(): Promise<void> {
   const decisions = new DecisionService(repository, requestAuthContext);
   // The export reuses the leadership projection (task 7.7), enforces the same
   // programme permission as the UI (task 7.10, R16.4) and appends an
-  // append-only EXPORT_CREATED security-audit event on success (R15).
-  const exports = new ExportService(summaries, requestAuthContext, repository);
+  // append-only EXPORT_CREATED security-audit event on success (R15). A
+  // per-subject rate limiter applies minimal abuse protection (task 10.3): a
+  // caller exceeding the window gets a generic 429 before any programme lookup.
+  const exports = new ExportService(
+    summaries,
+    requestAuthContext,
+    repository,
+    new RateLimiter({ max: 30, windowMs: FIFTEEN_MINUTES_MS }),
+  );
   // In-app deadline reminders (task 9.1). Reminders are generated lazily and
   // idempotently when the inbox is loaded — no cron/background worker.
   const notifications = new NotificationService(repository, requestAuthContext);

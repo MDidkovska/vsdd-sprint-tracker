@@ -57,7 +57,9 @@ export function registerExportRoutes(app: FastifyInstance, api: ExportApi): void
     `${API_BASE_PATH}/programmes/:programmeId/exports`,
     { schema: { body: EXPORT_BODY_SCHEMA } },
     async (request) => {
-      return api.createExport(request.params.programmeId, request.body);
+      // The client IP is passed only as a rate-limit key (task 10.3); it never
+      // affects the exported data.
+      return api.createExport(request.params.programmeId, request.body, request.ip);
     },
   );
 }

@@ -34,6 +34,29 @@ export interface RegisterInput {
   requestedTeam?: string;
 }
 
+/**
+ * The neutral "registration accepted" acknowledgement returned by
+ * POST /auth/register (anti-enumeration, mirrors the server
+ * `RegistrationAccepted`, design.md §13 / task 10.3).
+ *
+ * This projection is derived ONLY from the registration request and is
+ * deliberately NOT {@link PublicUser}. It NEVER reads or exposes any stored
+ * account fact — no stored id, no real account status (a duplicate for an
+ * ACTIVE / SUSPENDED / REJECTED / PENDING account all resolve to the SAME
+ * constant `status: 'PENDING'`), no roles, no assignments (teamIds/programmeId)
+ * and no display name. The only request-derived value it carries is the
+ * submitted email, which the caller already knows. Keeping the shape constant
+ * means a brand-new registration and a repeat registration are byte-for-byte
+ * indistinguishable, so the response can never disclose whether an email is
+ * already registered.
+ */
+export interface RegistrationAccepted {
+  /** Always the literal 'PENDING' — never the stored account's real status. */
+  status: 'PENDING';
+  /** The submitted (normalised) email, which the caller already provided. */
+  email: string;
+}
+
 export interface LoginInput {
   email: string;
   password: string;
@@ -114,7 +137,7 @@ export class AuthError extends Error {
 export interface AuthClient {
   /** Resolve the current principal, or null when unauthenticated (401). */
   getMe(): Promise<CurrentUser | null>;
-  register(input: RegisterInput): Promise<PublicUser>;
+  register(input: RegisterInput): Promise<RegistrationAccepted>;
   login(input: LoginInput): Promise<CurrentUser>;
   logout(): Promise<void>;
   // Admin surface
@@ -176,7 +199,10 @@ export function createHttpAuthClient(baseUrl = resolveApiBaseUrl()): AuthClient 
   return {
     getMe: () => request<CurrentUser | null>('/me', { method: 'GET', allow401: true }),
     register: (input) =>
-      request<PublicUser>('/auth/register', { method: 'POST', body: JSON.stringify(input) }),
+      request<RegistrationAccepted>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
     login: (input) =>
       request<CurrentUser>('/auth/login', { method: 'POST', body: JSON.stringify(input) }),
     logout: () => request<void>('/auth/logout', { method: 'POST' }),

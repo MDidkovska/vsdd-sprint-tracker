@@ -10,7 +10,7 @@
  */
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import type { PublicUser } from '../domain/accounts.js';
+import type { RegistrationAccepted } from '../domain/accounts.js';
 import type { CurrentUser } from '../domain/identity.js';
 import { ApiError } from './errorEnvelope.js';
 import {
@@ -56,16 +56,9 @@ const PRINCIPAL: CurrentUser = {
   canViewAll: false,
 };
 
-const PUBLIC_USER: PublicUser = {
-  id: 'user-1',
-  email: 'lead@example.com',
-  displayName: 'Team Lead',
+const REGISTRATION_ACCEPTED: RegistrationAccepted = {
   status: 'PENDING',
-  roles: [],
-  teamIds: [],
-  programmeId: null,
-  createdAt: '2024-01-01T00:00:00.000Z',
-  updatedAt: '2024-01-01T00:00:00.000Z',
+  email: 'lead@example.com',
 };
 
 const SESSION_TOKEN = 'SUPERSECRETSESSIONTOKEN0000000000000000000';
@@ -75,7 +68,7 @@ const FREE_TEXT_GOAL = 'DELIVER THE PAYMENTS MIGRATION BY FRIDAY';
 /** A fake auth API that exercises the real register/login/logout routes. */
 function fakeAuth(): AuthApi {
   return {
-    register: async () => PUBLIC_USER,
+    register: async () => REGISTRATION_ACCEPTED,
     login: async () => ({
       principal: PRINCIPAL,
       token: SESSION_TOKEN,

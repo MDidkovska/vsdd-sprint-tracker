@@ -209,6 +209,18 @@
         "chatSessionId": "sess_ef28890f-f324-4775-afed-eba982fb7bf7",
         "timestamp": 1787866788100
       }
+    ],
+    "10.3 Apply minimal abuse protection to login, registration and export: rate limiting plus generic responses that prevent account or programme-data enumeration.": [
+      {
+        "executionId": "be16ec60-540c-47c2-acbf-4ee04b7c39e6",
+        "chatSessionId": "sess_8d035917-3efc-4013-875b-dd09e2b6b240",
+        "timestamp": 1787866883318
+      },
+      {
+        "executionId": "be16ec60-540c-47c2-acbf-4ee04b7c39e6",
+        "chatSessionId": "sess_8d035917-3efc-4013-875b-dd09e2b6b240",
+        "timestamp": 1787867253790
+      }
     ]
   }
 }

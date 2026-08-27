@@ -59,9 +59,12 @@ export function registerAuthRoutes(
     `${API_BASE_PATH}/auth/register`,
     { schema: { body: REGISTER_SCHEMA } },
     async (request, reply) => {
-      const user = await api.register(request.body, clientKey(request));
+      // A neutral acknowledgement derived only from the request (never the
+      // stored account), so a duplicate email is indistinguishable from a new
+      // one (anti-enumeration, task 10.3). The status stays 201 for both.
+      const accepted = await api.register(request.body, clientKey(request));
       reply.code(201);
-      return user;
+      return accepted;
     },
   );
 

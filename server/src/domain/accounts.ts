@@ -96,6 +96,37 @@ export interface RegisterInput {
   requestedTeam?: string;
 }
 
+/**
+ * The neutral "registration accepted" acknowledgement returned by
+ * POST /auth/register (anti-enumeration, design.md §13 / task 10.3).
+ *
+ * This projection is derived ONLY from the registration request and is
+ * deliberately NOT {@link PublicUser}. It NEVER reads or exposes any stored
+ * account fact — no stored id, no real account status (a duplicate for an
+ * ACTIVE / SUSPENDED / REJECTED / PENDING account all resolve to the SAME
+ * constant `status: 'PENDING'`), no roles, no assignments (teamIds/programmeId)
+ * and no display name. The only request-derived value it carries is the
+ * submitted email, which the caller already knows. Keeping the shape constant
+ * means a brand-new registration and a repeat registration are byte-for-byte
+ * indistinguishable, so the response can never disclose whether an email is
+ * already registered.
+ */
+export interface RegistrationAccepted {
+  /** Always the literal 'PENDING' — never the stored account's real status. */
+  status: 'PENDING';
+  /** The submitted (normalised) email, which the caller already provided. */
+  email: string;
+}
+
+/**
+ * Build the neutral {@link RegistrationAccepted} acknowledgement from the
+ * submitted (normalised) email alone. Never touches a stored account, so both
+ * the new-email and duplicate-email paths return an identical body.
+ */
+export function registrationAccepted(email: string): RegistrationAccepted {
+  return { status: 'PENDING', email };
+}
+
 /** Login input (POST /auth/login). */
 export interface LoginInput {
   email: string;

@@ -10,6 +10,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthContext } from '../auth/mockAuth.js';
+import { RateLimiter } from '../auth/rateLimiter.js';
 import type { AuditEvent } from '../domain/documents.js';
 import type { CurrentUser } from '../domain/identity.js';
 import type { ReportingSummary } from '../domain/leadership.js';
@@ -160,5 +161,69 @@ describe('ExportService authorisation', () => {
     expect(real.code).toBe('PERMISSION_DENIED');
     expect(fake.code).toBe('PERMISSION_DENIED');
     expect(getReportingSummary).not.toHaveBeenCalled();
+  });
+});
+
+describe('ExportService rate limiting (task 10.3)', () => {
+  it('refuses a caller with 429 RATE_LIMITED once the export window is exhausted', async () => {
+    const getReportingSummary = vi.fn(async () => SUMMARY);
+    const service = new ExportService(
+      { getReportingSummary } as SummaryApi,
+      authFor({}),
+      fakeAudit(),
+      new RateLimiter({ max: 2, windowMs: 60_000, now: () => 0 }),
+    );
+
+    await expect(service.createExport('vsdd', validRequest, '10.0.0.1')).resolves.toBeDefined();
+    await expect(service.createExport('vsdd', validRequest, '10.0.0.1')).resolves.toBeDefined();
+    await expect(
+      service.createExport('vsdd', validRequest, '10.0.0.1'),
+    ).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+  });
+
+  it('enforces the rate limit BEFORE any programme lookup (no projection, no enumeration)', async () => {
+    const getReportingSummary = vi.fn(async () => SUMMARY);
+    const service = new ExportService(
+      { getReportingSummary } as SummaryApi,
+      authFor({}),
+      fakeAudit(),
+      new RateLimiter({ max: 1, windowMs: 60_000, now: () => 0 }),
+    );
+
+    await service.createExport('vsdd', validRequest, '10.0.0.1');
+    expect(getReportingSummary).toHaveBeenCalledTimes(1);
+
+    // The blocked attempt never reaches the leadership projection, so the 429
+    // reveals nothing about which programmes exist.
+    await expect(
+      service.createExport('vsdd', validRequest, '10.0.0.1'),
+    ).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    expect(getReportingSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('rate-limits per subject independently of the requested programme id', async () => {
+    const getReportingSummary = vi.fn(async () => SUMMARY);
+    const service = new ExportService(
+      { getReportingSummary } as SummaryApi,
+      authFor({}),
+      fakeAudit(),
+      new RateLimiter({ max: 1, windowMs: 60_000, now: () => 0 }),
+    );
+
+    await service.createExport('vsdd', validRequest, '10.0.0.1');
+    // A second attempt for a DIFFERENT programme id from the same subject is
+    // still throttled — the bucket is keyed by subject, not programme.
+    await expect(
+      service.createExport('other-programme', validRequest, '10.0.0.1'),
+    ).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+  });
+
+  it('does not throttle when no limiter is wired (endpoint unit tests)', async () => {
+    const getReportingSummary = vi.fn(async () => SUMMARY);
+    const service = new ExportService({ getReportingSummary } as SummaryApi, authFor({}), fakeAudit());
+
+    for (let i = 0; i < 5; i += 1) {
+      await expect(service.createExport('vsdd', validRequest, '10.0.0.1')).resolves.toBeDefined();
+    }
   });
 });

@@ -58,10 +58,17 @@ paths:
     post:
       operationId: register
       tags: [auth]
-      summary: Self-register a new local account (stored PENDING)
+      summary: Self-register a new local account
       description: >-
-        Public endpoint. Creates a PENDING account (Argon2id password hash) and
-        records a registration audit event. Rate-limited (R1.9).
+        Public endpoint. Rate-limited (R1.9). Returns a neutral acknowledgement
+        derived ONLY from the request (anti-enumeration, design.md §13 /
+        task 10.3): a brand-new email and an already-registered email produce
+        the SAME `RegistrationAccepted` body, so the response never reveals
+        whether an account exists. A genuinely new email is stored PENDING
+        (Argon2id password hash) with a registration audit event; a duplicate
+        leaves the existing account untouched. The response never exposes any
+        stored account fact (id, roles, assignments, display name or the real
+        account status).
       security: []
       requestBody:
         required: true
@@ -71,15 +78,16 @@ paths:
               $ref: '#/components/schemas/RegisterRequest'
       responses:
         '201':
-          description: The created PENDING user (never includes a password hash).
+          description: >-
+            Neutral registration acknowledgement. Identical for a new or an
+            already-registered email; never includes account details or a
+            password hash.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PublicUser'
+                $ref: '#/components/schemas/RegistrationAccepted'
         '400':
           $ref: '#/components/responses/ValidationError'
-        '409':
-          $ref: '#/components/responses/EmailTaken'
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
@@ -1290,18 +1298,6 @@ components:
                 version instead.
               correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
               fieldErrors: []
-    EmailTaken:
-      description: An account with this email already exists (registration).
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorEnvelope'
-          example:
-            error:
-              code: EMAIL_TAKEN
-              message: An account with this email already exists.
-              correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
-              fieldErrors: []
     TooManyRequests:
       description: Registration/login rate limit exceeded (R1.9).
       content:
@@ -2147,6 +2143,26 @@ components:
           type: string
           maxLength: 400
           description: Optional free-text team the registrant asks to join.
+    RegistrationAccepted:
+      type: object
+      description: >-
+        Neutral acknowledgement returned by POST /auth/register
+        (anti-enumeration, design.md §13 / task 10.3). Derived ONLY from the
+        request: `status` is always the literal PENDING (never the stored
+        account's real status) and `email` is the submitted address the caller
+        already knows. Deliberately NOT the PublicUser projection — it carries
+        no stored id, roles, assignments (teamIds/programmeId), display name or
+        timestamps, so a new-email and an already-registered-email response are
+        byte-for-byte identical.
+      additionalProperties: false
+      required: [status, email]
+      properties:
+        status:
+          type: string
+          enum: [PENDING]
+        email:
+          type: string
+          format: email
     LoginRequest:
       type: object
       additionalProperties: false

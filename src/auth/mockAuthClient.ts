@@ -25,6 +25,7 @@ import {
   type LoginInput,
   type PublicUser,
   type RegisterInput,
+  type RegistrationAccepted,
 } from './authClient';
 
 interface MockAccount {
@@ -176,7 +177,7 @@ export function createMockAuthClient(options: MockAuthClientOptions = {}): AuthC
       return toPrincipal(account);
     },
 
-    async register(input: RegisterInput) {
+    async register(input: RegisterInput): Promise<RegistrationAccepted> {
       const email = input.email.trim().toLowerCase();
       if (!input.displayName.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         throw new AuthError('VALIDATION_FAILED', 'Enter a valid display name and email.');
@@ -184,26 +185,33 @@ export function createMockAuthClient(options: MockAuthClientOptions = {}): AuthC
       if ((input.password ?? '').length < 10) {
         throw new AuthError('VALIDATION_FAILED', 'Use a password of at least 10 characters.');
       }
-      if (byEmail(email)) {
-        throw new AuthError('EMAIL_TAKEN', 'An account with this email already exists.');
+      // Anti-enumeration parity with the server (design.md §13 / task 10.3): a
+      // registration for an email that is ALREADY registered must return the
+      // SAME neutral acknowledgement as a brand-new one, so the response never
+      // reveals whether an account exists. For a duplicate we therefore do NOT
+      // create a second account, do NOT touch the stored one, and do NOT write
+      // a USER_REGISTERED audit — but we still return the identical body.
+      if (!byEmail(email)) {
+        const id = nextId('user');
+        const account: MockAccount = {
+          id,
+          email,
+          displayName: input.displayName.trim(),
+          password: input.password,
+          status: 'PENDING',
+          ...(input.requestedTeam?.trim() ? { requestedTeam: input.requestedTeam.trim() } : {}),
+          roles: [],
+          teamIds: [],
+          programmeId: null,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        accounts.set(id, account);
+        record('USER_REGISTERED', id, id);
       }
-      const id = nextId('user');
-      const account: MockAccount = {
-        id,
-        email,
-        displayName: input.displayName.trim(),
-        password: input.password,
-        status: 'PENDING',
-        ...(input.requestedTeam?.trim() ? { requestedTeam: input.requestedTeam.trim() } : {}),
-        roles: [],
-        teamIds: [],
-        programmeId: null,
-        createdAt: now(),
-        updatedAt: now(),
-      };
-      accounts.set(id, account);
-      record('USER_REGISTERED', id, id);
-      return toPublic(account);
+      // Derived ONLY from the request — never from any stored account — so the
+      // shape is constant and new-email vs duplicate-email are indistinguishable.
+      return { status: 'PENDING', email };
     },
 
     async login(input: LoginInput) {

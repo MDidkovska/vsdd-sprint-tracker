@@ -132,6 +132,45 @@ describe('structured export route', () => {
     await app.close();
   });
 
+  it('maps a RATE_LIMITED ApiError to a 429 envelope (task 10.3)', async () => {
+    const app = build(
+      fakeApi({
+        createExport: async () => {
+          throw new ApiError('RATE_LIMITED', 'Too many export requests. Please wait and try again.');
+        },
+      }),
+    );
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/programmes/vsdd/exports',
+      payload: validBody(),
+    });
+    expect(response.statusCode).toBe(429);
+    expect(response.json()).toMatchObject({ error: { code: 'RATE_LIMITED' } });
+    await app.close();
+  });
+
+  it('passes the client IP through to the API as a rate-limit key (task 10.3)', async () => {
+    let seenClientKey: string | undefined = 'unset';
+    const app = build(
+      fakeApi({
+        createExport: async (_programmeId, _request, clientKey) => {
+          seenClientKey = clientKey;
+          return EMPTY_SNAPSHOT;
+        },
+      }),
+    );
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/programmes/vsdd/exports',
+      payload: validBody(),
+    });
+    // Fastify resolves request.ip; inject defaults to a loopback address.
+    expect(typeof seenClientKey).toBe('string');
+    expect(seenClientKey).not.toBe('unset');
+    await app.close();
+  });
+
   it('maps a NOT_FOUND ApiError to a 404 envelope', async () => {
     const app = build(
       fakeApi({

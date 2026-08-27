@@ -44,15 +44,8 @@ function build(api: AuthApi, secureCookies = false) {
 function fakeApi(overrides: Partial<AuthApi> = {}): AuthApi {
   return {
     register: async () => ({
-      id: 'u1',
-      email: 'u1@example.com',
-      displayName: 'U One',
       status: 'PENDING',
-      roles: [],
-      teamIds: [],
-      programmeId: null,
-      createdAt: 'now',
-      updatedAt: 'now',
+      email: 'u1@example.com',
     }),
     login: async () => LOGIN_RESULT,
     logout: async () => undefined,
@@ -61,7 +54,7 @@ function fakeApi(overrides: Partial<AuthApi> = {}): AuthApi {
 }
 
 describe('auth routes', () => {
-  it('POST /auth/register returns 201 with the PENDING public user', async () => {
+  it('POST /auth/register returns 201 with the neutral PENDING acknowledgement only', async () => {
     const app = build(fakeApi());
     const res = await app.inject({
       method: 'POST',
@@ -70,6 +63,10 @@ describe('auth routes', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json().status).toBe('PENDING');
+    // The body is the constant-shaped acknowledgement — no account projection.
+    expect(Object.keys(res.json()).sort()).toEqual(['email', 'status']);
+    expect(res.json()).not.toHaveProperty('id');
+    expect(res.json()).not.toHaveProperty('roles');
     await app.close();
   });
 

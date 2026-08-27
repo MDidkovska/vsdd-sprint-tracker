@@ -17,8 +17,13 @@
  * without touching business services.
  */
 import { randomUUID } from 'node:crypto';
-import type { LoginInput, PublicUser, RegisterInput, UserAccount } from '../domain/accounts.js';
-import { toPublicUser } from '../domain/accounts.js';
+import type {
+  LoginInput,
+  RegisterInput,
+  RegistrationAccepted,
+  UserAccount,
+} from '../domain/accounts.js';
+import { registrationAccepted } from '../domain/accounts.js';
 import type { AuditEvent } from '../domain/documents.js';
 import type { CurrentUser } from '../domain/identity.js';
 import { ApiError, type FieldError } from '../http/errorEnvelope.js';
@@ -56,7 +61,7 @@ export interface LoginResult {
 
 /** Public API consumed by the auth routes. */
 export interface AuthApi {
-  register(input: RegisterInput, clientKey: string): Promise<PublicUser>;
+  register(input: RegisterInput, clientKey: string): Promise<RegistrationAccepted>;
   login(input: LoginInput, clientKey: string): Promise<LoginResult>;
   logout(token: string | undefined): Promise<void>;
 }
@@ -74,7 +79,7 @@ export class AuthService implements AuthApi {
     this.now = deps.now ?? Date.now;
   }
 
-  async register(input: RegisterInput, clientKey: string): Promise<PublicUser> {
+  async register(input: RegisterInput, clientKey: string): Promise<RegistrationAccepted> {
     // R1.9 — rate-limit registration by client key (IP).
     this.enforceRateLimit(this.deps.registerLimiter, `register:${clientKey}`);
 
@@ -103,13 +108,10 @@ export class AuthService implements AuthApi {
       throw ApiError.validation('Check the highlighted fields and try again.', errors);
     }
 
-    // One account per email (R1a). Pre-check for a friendly error; the unique
-    // index is the race-safe backstop below.
-    const existing = await this.deps.identity.getUserByEmail(email);
-    if (existing) {
-      throw new ApiError('EMAIL_TAKEN', 'An account with this email already exists.');
-    }
-
+    // Always hash the submitted password first, then build the candidate
+    // account. Hashing here (before the existence check) keeps the duplicate
+    // and new-account paths doing the same expensive work, so the response
+    // time does not become a timing oracle for whether an email exists.
     const passwordHash = await this.deps.hasher.hash(password);
     const timestamp = new Date(this.now()).toISOString();
     const user: UserAccount = {
@@ -123,6 +125,20 @@ export class AuthService implements AuthApi {
       updatedAt: timestamp,
     };
 
+    // Anti-enumeration (design.md §13, task 10.3): a registration for an email
+    // that is ALREADY registered must return the SAME neutral acknowledgement
+    // as a brand-new registration, so the response never reveals whether an
+    // account exists. We therefore never create a second account, never
+    // overwrite the stored account or its credentials, and never write a
+    // USER_REGISTERED audit for the duplicate — the one-account-per-email
+    // invariant (R1a) is preserved. Crucially the returned body is derived ONLY
+    // from the request (via registrationAccepted), never from the stored
+    // account, so it cannot leak the stored id/status/roles/assignment/name.
+    const existing = await this.deps.identity.getUserByEmail(email);
+    if (existing) {
+      return registrationAccepted(email);
+    }
+
     // R1.10 / atomicity — create the user and its USER_REGISTERED audit in ONE
     // atomic operation, so a failure never leaves a user without its audit
     // record (or vice versa). The audit stores only stable ids/action — never
@@ -134,12 +150,17 @@ export class AuthService implements AuthApi {
       });
     } catch (error) {
       if (error instanceof DuplicateKeyError) {
-        throw new ApiError('EMAIL_TAKEN', 'An account with this email already exists.');
+        // A race: another request registered the same email between the
+        // pre-check and this insert. The unique index still prevented a
+        // duplicate account; return the same neutral acknowledgement rather
+        // than disclosing (via EMAIL_TAKEN) that the email is taken. Derived
+        // from the request only — the pre-existing account is left untouched.
+        return registrationAccepted(email);
       }
       throw error;
     }
 
-    return toPublicUser(user, null);
+    return registrationAccepted(email);
   }
 
   async login(input: LoginInput, clientKey: string): Promise<LoginResult> {

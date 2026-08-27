@@ -43,18 +43,30 @@ const REGISTER = {
   requestedTeam: 'PTSB-VSDD MMM A',
 };
 
+/** The exact, constant-shaped body a registration acknowledgement must have. */
+const ACCEPTED_KEYS = ['email', 'status'];
+
 describe('AuthService.register', () => {
-  it('creates a PENDING user and never returns a password hash', async () => {
+  it('returns a neutral PENDING acknowledgement and never a password hash or account projection', async () => {
     const { service, repo } = build();
-    const user = await service.register(REGISTER, '127.0.0.1');
+    const accepted = await service.register(REGISTER, '127.0.0.1');
 
-    expect(user.status).toBe('PENDING');
-    expect(user.email).toBe('dana@example.com'); // normalised
-    expect(user.roles).toEqual([]);
-    expect(JSON.stringify(user)).not.toContain('password');
-    expect(JSON.stringify(user)).not.toContain('hash');
+    // The neutral projection carries ONLY a constant status + the submitted
+    // email — never any account-derived field (id, roles, assignment, name).
+    expect(Object.keys(accepted).sort()).toEqual(ACCEPTED_KEYS);
+    expect(accepted.status).toBe('PENDING');
+    expect(accepted.email).toBe('dana@example.com'); // normalised
+    expect(accepted).not.toHaveProperty('id');
+    expect(accepted).not.toHaveProperty('roles');
+    expect(accepted).not.toHaveProperty('teamIds');
+    expect(accepted).not.toHaveProperty('programmeId');
+    expect(accepted).not.toHaveProperty('displayName');
+    expect(JSON.stringify(accepted)).not.toContain('password');
+    expect(JSON.stringify(accepted)).not.toContain('hash');
 
+    // The account IS created and stored (PENDING) with its hashed password.
     const stored = await repo.getUserByEmail('dana@example.com');
+    expect(stored?.status).toBe('PENDING');
     expect(stored?.passwordHash).toBe('hashed:a-good-password');
     // Audit records the registration but never the password.
     const registered = repo.auditEvents.find((e) => e.action === 'USER_REGISTERED');
@@ -62,12 +74,116 @@ describe('AuthService.register', () => {
     expect(JSON.stringify(repo.auditEvents)).not.toContain('a-good-password');
   });
 
-  it('rejects a duplicate email', async () => {
-    const { service } = build();
-    await service.register(REGISTER, '127.0.0.1');
-    await expect(service.register(REGISTER, '127.0.0.1')).rejects.toMatchObject({
-      code: 'EMAIL_TAKEN',
+  it('does not reveal that an email is already registered (anti-enumeration, task 10.3)', async () => {
+    const { service, repo } = build();
+
+    // A brand-new registration and a REPEAT registration of the SAME email
+    // (identical input) must be indistinguishable: same body shape and values,
+    // so the response never discloses that the account already exists.
+    const first = await service.register(REGISTER, '127.0.0.1');
+    const usersAfterFirst = (await repo.listUsers()).length;
+    const registeredAfterFirst = repo.auditEvents.filter(
+      (e) => e.action === 'USER_REGISTERED',
+    ).length;
+
+    // The duplicate resolves (never throws EMAIL_TAKEN) with the same body.
+    const second = await service.register(REGISTER, '127.0.0.1');
+
+    expect(Object.keys(second).sort()).toEqual(Object.keys(first).sort());
+    expect(second).toEqual(first);
+    expect(second.status).toBe('PENDING');
+    expect(second.email).toBe(first.email);
+
+    // One account per email (R1a): no duplicate account, and no spurious extra
+    // USER_REGISTERED audit was written for the repeat attempt.
+    expect((await repo.listUsers()).length).toBe(usersAfterFirst);
+    expect(
+      repo.auditEvents.filter((e) => e.action === 'USER_REGISTERED').length,
+    ).toBe(registeredAfterFirst);
+
+    // The stored account keeps its ORIGINAL credentials (not overwritten).
+    const stored = await repo.getUserByEmail('dana@example.com');
+    expect(stored?.passwordHash).toBe('hashed:a-good-password');
+  });
+
+  // The stored account's real status MUST NOT influence the response: a repeat
+  // registration for an ACTIVE, SUSPENDED or REJECTED account must be
+  // byte-for-byte identical to a brand-new PENDING registration, and must leave
+  // the stored account (id, credentials, status) completely untouched.
+  for (const storedStatus of ['ACTIVE', 'SUSPENDED', 'REJECTED'] as const) {
+    it(`does not leak a stored ${storedStatus} account through a duplicate registration (task 10.3)`, async () => {
+      const { service, repo } = build();
+
+      // A brand-new registration for a DIFFERENT email — the neutral baseline
+      // every duplicate response must match exactly (except its own email).
+      const baseline = await service.register(
+        { ...REGISTER, email: 'baseline@example.com' },
+        '127.0.0.1',
+      );
+
+      // Register dana@…, then move the stored account into the target state.
+      await service.register(REGISTER, '127.0.0.1');
+      const before = await repo.getUserByEmail('dana@example.com');
+      await repo.updateUserStatus(before!.id, storedStatus, new Date().toISOString());
+
+      const usersBefore = (await repo.listUsers()).length;
+      const registeredBefore = repo.auditEvents.filter(
+        (e) => e.action === 'USER_REGISTERED',
+      ).length;
+
+      // Re-register the SAME email while the account is ACTIVE/SUSPENDED/REJECTED.
+      const dup = await service.register(REGISTER, '127.0.0.1');
+
+      // Same constant SHAPE and same VALUES as the new-email baseline (only the
+      // echoed email differs — it is request-derived, which the caller knows).
+      expect(Object.keys(dup).sort()).toEqual(ACCEPTED_KEYS);
+      expect(Object.keys(dup).sort()).toEqual(Object.keys(baseline).sort());
+      expect(dup.status).toBe('PENDING');
+      expect(dup.status).toBe(baseline.status);
+      expect(dup).toEqual({ ...baseline, email: 'dana@example.com' });
+
+      // NONE of the stored-account facts leak through the response.
+      const body = JSON.stringify(dup);
+      expect(dup).not.toHaveProperty('id');
+      expect(body).not.toContain(before!.id);
+      expect(body).not.toContain(storedStatus); // real status never echoed
+      expect(dup).not.toHaveProperty('roles');
+      expect(dup).not.toHaveProperty('teamIds');
+      expect(dup).not.toHaveProperty('programmeId');
+      expect(dup).not.toHaveProperty('displayName');
+
+      // The stored account is UNCHANGED: same id, same hash, same real status.
+      const after = await repo.getUserByEmail('dana@example.com');
+      expect(after!.id).toBe(before!.id);
+      expect(after!.passwordHash).toBe('hashed:a-good-password');
+      expect(after!.status).toBe(storedStatus);
+
+      // No duplicate account and no extra USER_REGISTERED audit was created.
+      expect((await repo.listUsers()).length).toBe(usersBefore);
+      expect(
+        repo.auditEvents.filter((e) => e.action === 'USER_REGISTERED').length,
+      ).toBe(registeredBefore);
     });
+  }
+
+  it('treats a create-time duplicate (race) the same generic way, not EMAIL_TAKEN', async () => {
+    const { service, repo } = build();
+    await service.register(REGISTER, '127.0.0.1');
+    const registeredBefore = repo.auditEvents.filter(
+      (e) => e.action === 'USER_REGISTERED',
+    ).length;
+
+    // Simulate the race: the pre-check sees no user, but the unique index
+    // rejects the insert (DuplicateKeyError). The backstop must still return
+    // the generic PENDING response, not disclose EMAIL_TAKEN.
+    repo.getUserByEmail = async () => null;
+
+    const result = await service.register(REGISTER, '127.0.0.1');
+    expect(result.status).toBe('PENDING');
+    // No spurious extra USER_REGISTERED audit for the rejected insert.
+    expect(
+      repo.auditEvents.filter((e) => e.action === 'USER_REGISTERED').length,
+    ).toBe(registeredBefore);
   });
 
   it('validates display name, email and password', async () => {
@@ -138,6 +254,30 @@ describe('AuthService.login', () => {
     await expect(
       service.login({ email: 'nobody@example.com', password: 'whatever-here' }, 'ip'),
     ).rejects.toMatchObject({ code: 'AUTH_FAILED' });
+  });
+
+  it('returns an IDENTICAL failure for an unknown email and an existing wrong password (task 10.3, no enumeration)', async () => {
+    // An existing ACTIVE account with the wrong password, and a completely
+    // unknown email, must be indistinguishable: same code AND same message, so
+    // an attacker cannot use the response to learn which emails have accounts.
+    const { service } = await withUser('ACTIVE');
+
+    const capture = async (email: string, password: string): Promise<ApiError> => {
+      try {
+        await service.login({ email, password }, `ip-${email}`);
+        throw new Error('expected login to reject');
+      } catch (error) {
+        return error as ApiError;
+      }
+    };
+
+    const wrongPassword = await capture('dana@example.com', 'definitely-wrong');
+    const unknownEmail = await capture('ghost@example.com', 'definitely-wrong');
+
+    expect(wrongPassword.code).toBe('AUTH_FAILED');
+    expect(unknownEmail.code).toBe('AUTH_FAILED');
+    // The user-facing message is identical for both cases (no distinguishing copy).
+    expect(unknownEmail.message).toBe(wrongPassword.message);
   });
 
   it('refuses a REJECTED account with ACCOUNT_INACTIVE', async () => {

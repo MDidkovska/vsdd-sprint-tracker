@@ -37,6 +37,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { AuthContext } from '../auth/mockAuth.js';
+import type { RateLimiter } from '../auth/rateLimiter.js';
 import { calculateDerivedRates } from '../domain/derived.js';
 import type { AuditEvent } from '../domain/documents.js';
 import type {
@@ -46,12 +47,21 @@ import type {
 } from '../domain/exportSnapshot.js';
 import type { LeadershipFilters, ResolvedUpdate } from '../domain/leadership.js';
 import { assertCanExport } from '../auth/authorization.js';
+import { ApiError } from '../http/errorEnvelope.js';
 import type { ReportingSummaryQuery, SummaryApi } from './summaryService.js';
 
 /** Public API consumed by the HTTP route. */
 export interface ExportApi {
-  /** Create a structured export of the filtered leadership snapshot. */
-  createExport(programmeId: string, request: ExportRequest): Promise<ExportSnapshot>;
+  /**
+   * Create a structured export of the filtered leadership snapshot. `clientKey`
+   * is a stable per-client identifier (the caller's IP) used only for abuse
+   * rate-limiting (task 10.3); it never influences the exported data.
+   */
+  createExport(
+    programmeId: string,
+    request: ExportRequest,
+    clientKey?: string,
+  ): Promise<ExportSnapshot>;
 }
 
 /**
@@ -66,22 +76,36 @@ export class ExportService implements ExportApi {
   private readonly summaries: SummaryApi;
   private readonly auth: AuthContext;
   private readonly audit: ExportAuditPort;
+  private readonly limiter?: RateLimiter;
 
   /**
    * Reuses the leadership reporting-summary projection (task 7.7) so the export
    * and the on-screen Leadership View share one filtering implementation, and
    * writes an append-only security-audit event for every SUCCESSFUL export
    * (requirements.md R15 — reopen and export are security-relevant events).
+   *
+   * An optional {@link RateLimiter} applies minimal abuse protection to the
+   * export endpoint (task 10.3, R1.9-style throttling): a caller that exceeds
+   * the window is refused with a generic 429 RATE_LIMITED before any programme
+   * lookup, so the throttle never doubles as a programme-enumeration oracle. It
+   * is optional so endpoint/service unit tests can omit it.
    */
-  constructor(summaries: SummaryApi, auth: AuthContext, audit: ExportAuditPort) {
+  constructor(
+    summaries: SummaryApi,
+    auth: AuthContext,
+    audit: ExportAuditPort,
+    limiter?: RateLimiter,
+  ) {
     this.summaries = summaries;
     this.auth = auth;
     this.audit = audit;
+    this.limiter = limiter;
   }
 
   async createExport(
     programmeId: string,
     request: ExportRequest,
+    clientKey?: string,
   ): Promise<ExportSnapshot> {
     // R16.4 / design.md §13 — authorise FIRST, before any programme lookup, so
     // an unauthorised caller cannot enumerate which programmes exist by
@@ -90,6 +114,14 @@ export class ExportService implements ExportApi {
     // visibility (mirrors the frontend `canViewAll` leadership gate).
     // Leadership OR Admin, scoped to the requested programme (R1 matrix).
     const user = this.auth.getCurrentUser();
+
+    // Task 10.3 — minimal abuse protection. Throttle by the authenticated
+    // subject (and client IP when known) BEFORE any programme lookup, so a
+    // caller cannot hammer the endpoint and the 429 reveals nothing about which
+    // programmes exist. Keyed by subject so it is independent of the requested
+    // programme id (no enumeration side channel).
+    this.enforceRateLimit(clientKey, user.subject);
+
     assertCanExport(user, programmeId);
 
     const filters: LeadershipFilters = request.filters;
@@ -150,6 +182,21 @@ export class ExportService implements ExportApi {
       exportedAt,
       records,
     };
+  }
+
+  /**
+   * Enforce the export rate-limit bucket, throwing a generic 429 RATE_LIMITED
+   * when the caller exceeds the window. A no-op when no limiter is wired
+   * (endpoint/service unit tests). The bucket is keyed by subject + client key
+   * and never by programme id, so it cannot be used to probe which programmes
+   * exist.
+   */
+  private enforceRateLimit(clientKey: string | undefined, subject: string): void {
+    if (!this.limiter) return;
+    const result = this.limiter.hit(`export:${clientKey ?? 'unknown'}:${subject}`);
+    if (!result.allowed) {
+      throw new ApiError('RATE_LIMITED', 'Too many export requests. Please wait and try again.');
+    }
   }
 }
 

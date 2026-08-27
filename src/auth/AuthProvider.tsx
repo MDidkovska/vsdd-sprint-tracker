@@ -17,7 +17,12 @@ import {
   type ReactNode,
 } from 'react';
 import type { CurrentUser } from '../api/repository';
-import type { AuthClient, LoginInput, RegisterInput, PublicUser } from './authClient';
+import type {
+  AuthClient,
+  LoginInput,
+  RegisterInput,
+  RegistrationAccepted,
+} from './authClient';
 
 export type AuthPhase = 'loading' | 'anonymous' | 'authenticated' | 'expired' | 'error';
 
@@ -28,7 +33,7 @@ export interface AuthContextValue {
   /** Set when the backend could not be reached (phase === 'error'). */
   connectionError: string | null;
   login: (input: LoginInput) => Promise<CurrentUser>;
-  register: (input: RegisterInput) => Promise<PublicUser>;
+  register: (input: RegisterInput) => Promise<RegistrationAccepted>;
   logout: () => Promise<void>;
   /** Re-read /me; marks the session expired if it was lost. */
   refresh: () => Promise<void>;

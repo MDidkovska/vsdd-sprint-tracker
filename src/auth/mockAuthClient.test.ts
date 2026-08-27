@@ -10,17 +10,35 @@ import { AuthError } from './authClient';
 import { createMockAuthClient } from './mockAuthClient';
 
 describe('createMockAuthClient', () => {
-  it('registers a PENDING account and rejects a duplicate email', async () => {
+  it('returns a neutral acknowledgement — new and duplicate email are indistinguishable', async () => {
     const client = createMockAuthClient();
-    const user = await client.register({
+    // A brand-new email resolves to EXACTLY { status: 'PENDING', email } —
+    // no id, roles, displayName, assignments or timestamps leak through.
+    const accepted = await client.register({
       displayName: 'New Person',
       email: 'new@vsdd.test',
       password: 'password123',
     });
-    expect(user.status).toBe('PENDING');
-    await expect(
-      client.register({ displayName: 'Dup', email: 'new@vsdd.test', password: 'password123' }),
-    ).rejects.toMatchObject({ code: 'EMAIL_TAKEN' });
+    expect(accepted).toEqual({ status: 'PENDING', email: 'new@vsdd.test' });
+    expect(Object.keys(accepted).sort()).toEqual(['email', 'status']);
+
+    // A duplicate email must NOT be revealed: no EMAIL_TAKEN thrown, and the
+    // body is byte-for-byte identical to a new registration (anti-enumeration).
+    const dup = await client.register({
+      displayName: 'Dup',
+      email: 'new@vsdd.test',
+      password: 'password123',
+    });
+    expect(dup).toEqual({ status: 'PENDING', email: 'new@vsdd.test' });
+    expect(dup).toEqual(accepted);
+
+    // A seeded existing account (pending@vsdd.test) also yields the neutral body.
+    const seededDup = await client.register({
+      displayName: 'Someone Else',
+      email: 'pending@vsdd.test',
+      password: 'password123',
+    });
+    expect(seededDup).toEqual({ status: 'PENDING', email: 'pending@vsdd.test' });
   });
 
   it('rejects a weak password', async () => {

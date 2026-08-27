@@ -121,18 +121,46 @@ describe('local-auth end-to-end', () => {
     expect(register.statusCode).toBe(201);
     const created = register.json();
     expect(created.status).toBe('PENDING');
+    // The register response is the neutral acknowledgement only — it never
+    // carries the stored account id or any account projection (task 10.3).
+    expect(Object.keys(created).sort()).toEqual(['email', 'status']);
+    expect(created).not.toHaveProperty('id');
     expect(register.body).not.toContain('passwordHash');
     expect(register.body).not.toContain('casey-password-1');
-    const userId = created.id as string;
+    // The stored account id is obtained via the repository, not the response
+    // (the response no longer exposes it — anti-enumeration, task 10.3).
+    const userId = (await repository.getUserByEmail('casey@vsdd.test'))!.id;
 
-    // 2. Duplicate registration is rejected.
+    // 2. A duplicate registration must be INDISTINGUISHABLE from a brand-new
+    //    one (anti-enumeration, task 10.3 / design.md §13): same 201 status and
+    //    the same neutral body shape, and the response must not disclose that
+    //    the email is already taken. Register with a DIFFERENT display name and
+    //    password to prove none of the stored account is echoed back.
     const dup = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/register',
-      payload: { displayName: 'Casey Again', email: 'casey@vsdd.test', password: 'another-password' },
+      payload: {
+        displayName: 'Casey Again',
+        email: 'casey@vsdd.test',
+        password: 'another-password',
+        requestedTeam: 'PTSB-VSDD MMM A',
+      },
     });
-    expect(dup.statusCode).toBe(409);
-    expect(dup.json().error.code).toBe('EMAIL_TAKEN');
+    expect(dup.statusCode).toBe(register.statusCode);
+    expect(dup.statusCode).toBe(201);
+    expect(dup.json().status).toBe('PENDING');
+    expect(Object.keys(dup.json()).sort()).toEqual(Object.keys(created).sort());
+    expect(dup.json()).toEqual(created);
+    expect(dup.body).not.toContain('EMAIL_TAKEN');
+    expect(dup.body).not.toContain('already exists');
+    expect(dup.body).not.toContain(userId); // stored id never leaks
+    expect(dup.body).not.toContain('Casey Again'); // display name never echoed
+
+    // The original account is preserved: same id/status, and only ONE account
+    // exists for that email (the duplicate never created a second one).
+    const afterDup = await repository.getUserByEmail('casey@vsdd.test');
+    expect(afterDup!.id).toBe(userId);
+    expect(afterDup!.status).toBe('PENDING');
 
     // 3. Pending user can sign in and see /me, but is denied programme data.
     const userCookie = await login('casey@vsdd.test', 'casey-password-1');
@@ -232,7 +260,9 @@ describe('local-auth end-to-end', () => {
       payload: { displayName: 'Rory Roundtrip', email: 'rory@vsdd.test', password: 'rory-password-1' },
     });
     expect(register.statusCode).toBe(201);
-    const userId = register.json().id as string;
+    // The register response no longer carries the stored id (task 10.3); look
+    // it up via the repository instead.
+    const userId = (await repository.getUserByEmail('rory@vsdd.test'))!.id;
 
     // Admin approve + assign.
     const adminCookie = await login('admin@vsdd.test', 'admin-password-1');

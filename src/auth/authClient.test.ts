@@ -59,15 +59,32 @@ describe('createHttpAuthClient', () => {
     expect(await client.getMe()).toBeNull();
   });
 
+  it('register resolves to exactly the neutral { status, email } acknowledgement', async () => {
+    // The server returns the neutral RegistrationAccepted body; the client must
+    // surface it verbatim and never expect account fields (anti-enumeration).
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(201, { status: 'PENDING', email: 'x@x.test' })),
+    );
+    const client = createHttpAuthClient('/api/v1');
+    const accepted = await client.register({
+      displayName: 'X',
+      email: 'x@x.test',
+      password: 'password123',
+    });
+    expect(accepted).toEqual({ status: 'PENDING', email: 'x@x.test' });
+    expect(Object.keys(accepted).sort()).toEqual(['email', 'status']);
+  });
+
   it('maps an error envelope to an AuthError', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => jsonResponse(409, { error: { code: 'EMAIL_TAKEN', message: 'taken' } })),
+      vi.fn(async () => jsonResponse(401, { error: { code: 'AUTH_FAILED', message: 'nope' } })),
     );
     const client = createHttpAuthClient('/api/v1');
     await expect(
-      client.register({ displayName: 'X', email: 'x@x', password: 'password123' }),
-    ).rejects.toMatchObject({ code: 'EMAIL_TAKEN' });
+      client.login({ email: 'x@x', password: 'password123' }),
+    ).rejects.toMatchObject({ code: 'AUTH_FAILED' });
   });
 
   it('throws (does not fall back) on a network failure', async () => {
