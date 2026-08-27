@@ -17,6 +17,7 @@ import { ExceptionTable } from '../../components/ExceptionTable';
 import { EmptyState } from '../../components/EmptyState';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/Field';
+import { VersionHistoryPanel } from './VersionHistoryPanel';
 import styles from './Leadership.module.css';
 
 const ragClass: Record<RagValue, string> = {
@@ -32,6 +33,17 @@ export interface TeamUpdateDetailProps {
   canDecide: boolean;
   decisions: LeadershipDecision[];
   onRecordDecision: (decision: string, dueDate?: string) => void;
+  /**
+   * The reporting checkpoint of the selected week. When provided together with
+   * {@link onSelectVersion}, the read-only version-history panel (task 9.4) is
+   * rendered for submitted evidence. Optional so the detail can still be shown
+   * in isolation.
+   */
+  checkpointId?: string;
+  /** The version anchored in the deep link (task 9.3), if any. */
+  selectedVersionId?: string;
+  /** Persist an opened historical version into the deep link (task 9.4). */
+  onSelectVersion?: (versionId: string) => void;
 }
 
 export function TeamUpdateDetail({
@@ -41,6 +53,9 @@ export function TeamUpdateDetail({
   canDecide,
   decisions,
   onRecordDecision,
+  checkpointId,
+  selectedVersionId,
+  onSelectVersion,
 }: TeamUpdateDetailProps) {
   const { team, resolved } = cell;
 
@@ -172,6 +187,15 @@ export function TeamUpdateDetail({
           />
         </div>
       </section>
+
+      {resolved.isSubmittedEvidence && checkpointId && onSelectVersion && (
+        <VersionHistoryPanel
+          teamId={team.id}
+          checkpointId={checkpointId}
+          selectedVersionId={selectedVersionId}
+          onSelectVersion={onSelectVersion}
+        />
+      )}
     </article>
   );
 }

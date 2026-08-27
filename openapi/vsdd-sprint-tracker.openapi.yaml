@@ -50,6 +50,8 @@ tags:
     description: Team update draft read/write, versions and audit
   - name: leadership
     description: Leadership View projection, decisions and export
+  - name: notifications
+    description: In-app notifications and deadline reminders (Phase 9, task 9.1)
 
 paths:
   /auth/register:
@@ -783,6 +785,86 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [notifications]
+      summary: The current user's in-app notification inbox
+      description: >-
+        Returns the authenticated caller's own notifications (newest first) plus
+        the unread count. Loading the inbox lazily and idempotently generates
+        the caller's notifications — there is no cron / background worker.
+        Deadline reminders (DUE_SOON / OVERDUE, task 9.1) are generated for an
+        ACTIVE Contributor or Team Lead assigned to the affected team while the
+        update is still Draft or Missing. Status alerts (RELEASE_RED /
+        OPEN_BLOCKER / LEADERSHIP_ASK, task 9.2) are generated for an ACTIVE
+        Leadership or Admin assigned to the programme, from the latest submitted
+        version in the current reporting checkpoint (Auditor, being read-only,
+        receives none). Every notification carries a deep link to the exact
+        context — and, for a status alert, the exact submitted version (task
+        9.3). Notifications are strictly per-recipient — a caller can never see
+        another user's notifications.
+      responses:
+        '200':
+          description: The caller's notification inbox
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationInbox'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /notifications/{id}/read:
+    post:
+      operationId: markNotificationRead
+      tags: [notifications]
+      summary: Mark one of the caller's notifications read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The stable notification id.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The updated notification
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /notifications/read-all:
+    post:
+      operationId: markAllNotificationsRead
+      tags: [notifications]
+      summary: Mark every unread notification for the caller read
+      responses:
+        '200':
+          description: The number of notifications marked read
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [updated]
+                properties:
+                  updated:
+                    type: integer
+                    minimum: 0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
 components:
   securitySchemes:
     cookieAuth:
@@ -1349,6 +1431,118 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    # ---------------------------------------------------------------------
+    # In-app notifications (server/src/domain/notifications.ts, task 9.1)
+    # ---------------------------------------------------------------------
+    NotificationType:
+      type: string
+      description: >-
+        Notification kind. Two families share this enum: deadline reminders
+        (DUE_SOON / OVERDUE, task 9.1) and status alerts (RELEASE_RED /
+        OPEN_BLOCKER / LEADERSHIP_ASK, task 9.2) raised from the latest
+        submitted version in the current reporting checkpoint.
+      enum: [DUE_SOON, OVERDUE, RELEASE_RED, OPEN_BLOCKER, LEADERSHIP_ASK]
+    NotificationDeepLink:
+      type: object
+      description: The exact context a notification deep-links to (task 9.3).
+      additionalProperties: false
+      required: [view, programmeId, streamId, teamId, sprintId, weekNumber]
+      properties:
+        view:
+          type: string
+          enum: [team, leadership]
+        programmeId:
+          type: string
+        streamId:
+          type: string
+        teamId:
+          type: string
+        sprintId:
+          type: string
+        weekNumber:
+          type: integer
+          enum: [1, 2]
+        versionId:
+          type: string
+          description: >-
+            The exact submitted version the alert points at (task 9.2 status
+            alerts; task 9.3 version-preserving links). Absent for deadline
+            reminders, which have no submitted version to link to yet.
+    Notification:
+      type: object
+      description: >-
+        A single in-app notification for one recipient — a deadline reminder
+        (task 9.1) or a status alert (task 9.2).
+      additionalProperties: false
+      required:
+        - id
+        - programmeId
+        - recipientSubject
+        - teamId
+        - teamName
+        - sprintId
+        - sprintLabel
+        - checkpointId
+        - weekNumber
+        - type
+        - title
+        - body
+        - dueAt
+        - deepLink
+        - createdAt
+      properties:
+        id:
+          type: string
+          description: Stable de-duplication key (recipient + team + checkpoint + type).
+        programmeId:
+          type: string
+        recipientSubject:
+          type: string
+        teamId:
+          type: string
+        teamName:
+          type: string
+        sprintId:
+          type: string
+        sprintLabel:
+          type: string
+        checkpointId:
+          type: string
+        weekNumber:
+          type: integer
+          enum: [1, 2]
+        type:
+          $ref: '#/components/schemas/NotificationType'
+        title:
+          type: string
+        body:
+          type: string
+        dueAt:
+          type: string
+          format: date-time
+        deepLink:
+          $ref: '#/components/schemas/NotificationDeepLink'
+        createdAt:
+          type: string
+          format: date-time
+        readAt:
+          type: string
+          format: date-time
+          description: Absent until the recipient marks the notification read.
+    NotificationInbox:
+      type: object
+      description: The caller's notification inbox plus the unread count.
+      additionalProperties: false
+      required: [items, unreadCount]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+        unreadCount:
+          type: integer
+          minimum: 0
 
     # ---------------------------------------------------------------------
     # Version comparison (server/src/domain/versionComparison.ts, R14.3)

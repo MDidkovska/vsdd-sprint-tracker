@@ -17,6 +17,7 @@ import {
   useHierarchy,
   useReopenUpdate,
   useSaveDraft,
+  useSprints,
   useSubmitUpdate,
   useUpdate,
   useVersions,
@@ -61,13 +62,24 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 export function TeamUpdatePage() {
-  const { selection } = useSelection();
+  const { selection, setSelection } = useSelection();
   const { showToast } = useToast();
   const repository = useRepository();
 
   const { data: user } = useCurrentUser();
   const { data: hierarchy } = useHierarchy(selection.programmeId);
+  const { data: sprints } = useSprints(selection.programmeId);
   const { data: checkpoints } = useCheckpoints(selection.sprintId);
+
+  // A deep link may reference a sprint that does not exist; fall back to the
+  // current/first sprint so the editor resolves instead of loading forever.
+  // (Safe handling of an invalid target — task 9.3.)
+  useEffect(() => {
+    if (!sprints || sprints.length === 0) return;
+    if (sprints.some((s) => s.id === selection.sprintId)) return;
+    const fallback = sprints.find((s) => s.status === 'CURRENT') ?? sprints[0]!;
+    setSelection({ sprintId: fallback.id });
+  }, [sprints, selection.sprintId, setSelection]);
   const checkpoint = useMemo(
     () => checkpoints?.find((c) => c.weekNumber === selection.weekNumber),
     [checkpoints, selection.weekNumber],

@@ -29,6 +29,7 @@ import { DecisionService } from './services/decisionService.js';
 import { DraftService } from './services/draftService.js';
 import { ExportService } from './services/exportService.js';
 import { HierarchyService } from './services/hierarchyService.js';
+import { NotificationService } from './services/notificationService.js';
 import { ReopenService } from './services/reopenService.js';
 import { SubmitService } from './services/submitService.js';
 import { SummaryService } from './services/summaryService.js';
@@ -77,6 +78,9 @@ async function main(): Promise<void> {
   // programme permission as the UI (task 7.10, R16.4) and appends an
   // append-only EXPORT_CREATED security-audit event on success (R15).
   const exports = new ExportService(summaries, requestAuthContext, repository);
+  // In-app deadline reminders (task 9.1). Reminders are generated lazily and
+  // idempotently when the inbox is loaded — no cron/background worker.
+  const notifications = new NotificationService(repository, requestAuthContext);
 
   const app = buildServer(
     {
@@ -92,6 +96,7 @@ async function main(): Promise<void> {
       auth: authService,
       admin: adminService,
       auditQuery,
+      notifications,
       authenticator,
       authConfig: {
         secureCookies: config.secureCookies,

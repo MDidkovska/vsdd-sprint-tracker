@@ -33,6 +33,7 @@ import { registerDecisionRoutes } from './routes/decisionRoutes.js';
 import { registerDraftRoutes } from './routes/draftRoutes.js';
 import { registerExportRoutes } from './routes/exportRoutes.js';
 import { registerHierarchyRoutes } from './routes/hierarchyRoutes.js';
+import { registerNotificationRoutes } from './routes/notificationRoutes.js';
 import { registerReopenRoutes } from './routes/reopenRoutes.js';
 import { registerSubmitRoutes } from './routes/submitRoutes.js';
 import { registerSummaryRoutes } from './routes/summaryRoutes.js';
@@ -44,6 +45,7 @@ import type { DecisionApi } from './services/decisionService.js';
 import type { DraftApi } from './services/draftService.js';
 import type { ExportApi } from './services/exportService.js';
 import type { HierarchyApi } from './services/hierarchyService.js';
+import type { NotificationApi } from './services/notificationService.js';
 import type { ReopenApi } from './services/reopenService.js';
 import type { SubmitApi } from './services/submitService.js';
 import type { SummaryApi } from './services/summaryService.js';
@@ -110,6 +112,12 @@ export interface ServerDeps {
    * GET /audit (Admin/Auditor).
    */
   auditQuery?: AuditApi;
+  /**
+   * The in-app notification API (task 9.1). Optional; registers
+   * GET /notifications, POST /notifications/:id/read and
+   * POST /notifications/read-all. Reminders are generated lazily on inbox load.
+   */
+  notifications?: NotificationApi;
   /**
    * The request authenticator (task 8.1/8.4). When provided, a global
    * authentication hook resolves the session cookie into a request-scoped
@@ -298,6 +306,11 @@ export function buildServer(
   // Read-only audit-history endpoint (Phase 8 repair), registered when wired.
   if (deps.auditQuery) {
     registerAuditRoutes(app, deps.auditQuery);
+  }
+
+  // In-app notification endpoints (task 9.1), registered only when wired.
+  if (deps.notifications) {
+    registerNotificationRoutes(app, deps.notifications);
   }
 
   return app;

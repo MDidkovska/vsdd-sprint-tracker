@@ -8,4 +8,7 @@ expect.extend(toHaveNoViolations);
 
 afterEach(() => {
   cleanup();
+  // Reset the URL between tests so deep-link state (task 9.3) never leaks from
+  // one test into the next.
+  window.history.replaceState(null, '', '/');
 });

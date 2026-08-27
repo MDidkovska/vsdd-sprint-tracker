@@ -15,6 +15,7 @@ import {
 } from '../../api/queries';
 import { useRepository } from '../../api/RepositoryContext';
 import { useSelection } from '../../app/selection';
+import { buildShareableLink } from '../../app/deepLink';
 import { useToast } from '../../components/Toast';
 import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
@@ -39,6 +40,17 @@ export function LeadershipPage() {
   const checkpointId = checkpoint?.id ?? '';
 
   const snapshotQuery = useLeadershipSnapshot(selection.programmeId, selection.sprintId, checkpointId);
+
+  // A deep link may reference a sprint that does not exist (typo, removed, or a
+  // link from another programme). Fall back to the current/first sprint so the
+  // view resolves instead of hanging on an empty checkpoint. (Safe handling of
+  // an invalid target — task 9.3.)
+  useEffect(() => {
+    if (!sprints || sprints.length === 0) return;
+    if (sprints.some((s) => s.id === selection.sprintId)) return;
+    const fallback = sprints.find((s) => s.status === 'CURRENT') ?? sprints[0]!;
+    setSelection({ sprintId: fallback.id });
+  }, [sprints, selection.sprintId, setSelection]);
 
   const [filters, setFilters] = useState<Filters>(DEFAULT_LEADERSHIP_FILTERS);
   const [collapsedStreams, setCollapsedStreams] = useState<Set<string>>(new Set());
@@ -75,7 +87,31 @@ export function LeadershipPage() {
     { teamId: selection.teamId, sprintId: selection.sprintId, checkpointId },
     Boolean(checkpointId) && selectedCell?.resolved.isSubmittedEvidence === true,
   );
-  const versionId = versionsQuery.data?.[0]?.id;
+  const versions = versionsQuery.data;
+  const latestVersionId = versions?.[0]?.id;
+
+  // Keep the deep link anchored to a real submitted version (tasks 9.3 + 9.4).
+  // Default to the latest submission, but PRESERVE a user-opened historical
+  // version so a copied/refreshed link points at the exact version on screen.
+  // A stale/invalid version id (unknown to the versions contract) is dropped and
+  // re-derived; when there is no submitted evidence any carried id is cleared —
+  // the versions contract is the authority, not the URL.
+  useEffect(() => {
+    if (versionsQuery.isLoading) return;
+    if (!versions || versions.length === 0) {
+      if (selection.versionId) setSelection({ versionId: undefined });
+      return;
+    }
+    const valid = selection.versionId
+      ? versions.some((v) => v.id === selection.versionId)
+      : false;
+    if (!valid) setSelection({ versionId: latestVersionId });
+  }, [versions, latestVersionId, selection.versionId, versionsQuery.isLoading, setSelection]);
+
+  // Leadership decisions are always recorded against the current (latest)
+  // submitted evidence, independent of any historical version being viewed.
+  const versionId = latestVersionId;
+
   const decisionsQuery = useQuery({
     queryKey: queryKeys.decisions(versionId ?? 'none'),
     queryFn: () => repository.getDecisions(versionId as string),
@@ -105,6 +141,28 @@ export function LeadershipPage() {
       showToast(`Exported ${snapshot.recordCount} filtered record(s) as JSON.`, 'success');
     } catch {
       showToast('Export failed. Try again.', 'error');
+    }
+  }
+
+  async function onCopyLink() {
+    const link = buildShareableLink({
+      view: 'leadership',
+      programmeId: selection.programmeId,
+      streamId: selectedCell?.streamId ?? selection.streamId,
+      teamId: selectedCell?.team.id ?? selection.teamId,
+      sprintId: selection.sprintId,
+      weekNumber: selection.weekNumber,
+      // Share the exact version on screen: the opened historical version if any,
+      // otherwise the latest submitted version.
+      ...(selection.versionId ?? versionId
+        ? { versionId: selection.versionId ?? (versionId as string) }
+        : {}),
+    });
+    try {
+      await navigator.clipboard.writeText(link);
+      showToast('Deep link copied. It opens this team, sprint, week and version.', 'success');
+    } catch {
+      showToast('Could not copy the link. Copy it from the address bar instead.', 'error');
     }
   }
 
@@ -140,6 +198,7 @@ export function LeadershipPage() {
           streams={(snapshotQuery.data?.streams ?? []).map((g) => g.stream)}
           onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
           onExport={onExport}
+          onCopyLink={onCopyLink}
         />
       </div>
 
@@ -212,6 +271,9 @@ export function LeadershipPage() {
               canDecide={canDecide}
               decisions={decisionsQuery.data ?? []}
               onRecordDecision={onRecordDecision}
+              checkpointId={checkpointId}
+              selectedVersionId={selection.versionId}
+              onSelectVersion={(id) => setSelection({ versionId: id })}
             />
           ) : (
             <div className={styles.detail}>

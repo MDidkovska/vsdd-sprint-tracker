@@ -9,9 +9,16 @@ export interface LeadershipFiltersProps {
   streams: Stream[];
   onChange: (patch: Partial<Filters>) => void;
   onExport: () => void;
+  onCopyLink: () => void;
 }
 
-export function LeadershipFilters({ filters, streams, onChange, onExport }: LeadershipFiltersProps) {
+export function LeadershipFilters({
+  filters,
+  streams,
+  onChange,
+  onExport,
+  onCopyLink,
+}: LeadershipFiltersProps) {
   return (
     <div className={styles.controls} aria-label="Leadership filters">
       <SelectField
@@ -51,6 +58,9 @@ export function LeadershipFilters({ filters, streams, onChange, onExport }: Lead
         <option value="MISSING">Missing</option>
       </SelectField>
 
+      <Button variant="ghost" onClick={onCopyLink}>
+        Copy link
+      </Button>
       <Button onClick={onExport}>Export snapshot</Button>
     </div>
   );

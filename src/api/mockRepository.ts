@@ -34,6 +34,18 @@ import type {
 import { deriveEnvelopeFlags } from '../domain/schemas';
 import { applyFilters, flattenTeams } from '../domain/leadershipFiltering';
 import {
+  isReportingCheckpointOpen,
+  needsReminder,
+  notificationKey,
+  reminderCopy,
+  reminderTypeFor,
+  statusAlertCopy,
+  statusAlertKey,
+  statusAlertTypesFor,
+  type Notification,
+  type NotificationInbox,
+} from '../domain/notifications';
+import {
   PermissionDeniedError,
   RepositoryError,
   RevisionConflictError,
@@ -77,6 +89,11 @@ export interface MockRepositoryOptions {
   latencyMs?: number;
   /** Override the current user (role/assignment negative tests). */
   user?: CurrentUser;
+  /**
+   * Clock used for deadline-reminder generation (task 9.1). Defaults to the
+   * real wall clock; tests inject a fixed instant to exercise DUE_SOON/OVERDUE.
+   */
+  now?: () => Date;
 }
 
 function emptyPayload(): UpdatePayload {
@@ -112,6 +129,9 @@ export class MockRepository implements Repository {
   private conflictArmed: Set<string>;
   private readonly latencyMs: number;
   private readonly user: CurrentUser;
+  private readonly now: () => Date;
+  /** In-app notifications keyed by their stable id (task 9.1). */
+  private notifications = new Map<string, Notification>();
   private counter = 0;
 
   constructor(options: MockRepositoryOptions = {}) {
@@ -121,6 +141,7 @@ export class MockRepository implements Repository {
     this.conflictArmed = seeded.conflictArmedDocIds;
     this.latencyMs = options.latencyMs ?? 220;
     this.user = options.user ?? MOCK_USER;
+    this.now = options.now ?? (() => new Date());
   }
 
   private hasRole(role: Role): boolean {
@@ -662,6 +683,189 @@ export class MockRepository implements Repository {
       reason: event.reason,
       correlationId: this.nextId('corr'),
     });
+  }
+
+  // --- in-app notifications (task 9.1) ------------------------------------
+
+  async getNotifications(): Promise<NotificationInbox> {
+    await this.delay();
+    this.generateDeadlineReminders();
+    this.generateStatusAlerts();
+    const items = [...this.notifications.values()]
+      .filter((n) => n.recipientSubject === this.user.subject)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((n) => structuredClone(n));
+    const unreadCount = items.reduce((count, n) => (n.readAt ? count : count + 1), 0);
+    return { items, unreadCount };
+  }
+
+  async markNotificationRead(id: string): Promise<Notification> {
+    await this.delay();
+    const existing = this.notifications.get(id);
+    // Recipient isolation: only the owner may mark their own notification read;
+    // any other id is reported as NOT_FOUND (never reveals another's item).
+    if (!existing || existing.recipientSubject !== this.user.subject) {
+      throw new RepositoryError('NOT_FOUND', 'Notification not found.');
+    }
+    existing.readAt = this.now().toISOString();
+    return structuredClone(existing);
+  }
+
+  async markAllNotificationsRead(): Promise<{ updated: number }> {
+    await this.delay();
+    const readAt = this.now().toISOString();
+    let updated = 0;
+    for (const n of this.notifications.values()) {
+      if (n.recipientSubject === this.user.subject && !n.readAt) {
+        n.readAt = readAt;
+        updated += 1;
+      }
+    }
+    return { updated };
+  }
+
+  /**
+   * Lazily and idempotently generate the current user's deadline reminders
+   * (task 9.1) — mirrors the backend NotificationService. Only an ACTIVE
+   * Contributor/Team Lead assigned to a team receives reminders; the stable key
+   * prevents duplicates across reloads; a submitted/reopened update stops them.
+   */
+  private generateDeadlineReminders(): void {
+    const user = this.user;
+    if (user.status !== 'ACTIVE' || !user.programmeId) return;
+    const isEditor = user.roles.includes('CONTRIBUTOR') || user.roles.includes('TEAM_LEAD');
+    if (!isEditor) return;
+
+    const nowMs = this.now().getTime();
+    const createdAt = new Date(nowMs).toISOString();
+    const sprints = SPRINTS.filter((s) => s.programmeId === user.programmeId);
+
+    for (const teamId of user.assignedTeamIds) {
+      const team = TEAMS.find((t) => t.id === teamId && t.active);
+      if (!team) continue;
+
+      for (const sprint of sprints) {
+        const checkpoints = CHECKPOINTS.filter((c) => c.sprintId === sprint.id);
+        for (const checkpoint of checkpoints) {
+          const type = reminderTypeFor(checkpoint, nowMs);
+          if (!type) continue;
+
+          const doc = this.documents.get(docKey(teamId, sprint.id, checkpoint.id));
+          const state = doc?.state ?? 'MISSING';
+          if (!needsReminder(state)) continue; // submitted/reopened -> stop reminders
+
+          const id = notificationKey(user.subject, teamId, checkpoint.id, type);
+          if (this.notifications.has(id)) continue; // idempotent generation
+
+          const { title, body } = reminderCopy(type, team.name, sprint.label, checkpoint.weekNumber);
+          this.notifications.set(id, {
+            id,
+            programmeId: user.programmeId,
+            recipientSubject: user.subject,
+            teamId,
+            teamName: team.name,
+            sprintId: sprint.id,
+            sprintLabel: sprint.label,
+            checkpointId: checkpoint.id,
+            weekNumber: checkpoint.weekNumber,
+            type,
+            title,
+            body,
+            dueAt: checkpoint.dueAt,
+            deepLink: {
+              view: 'team',
+              programmeId: user.programmeId,
+              streamId: team.streamId,
+              teamId,
+              sprintId: sprint.id,
+              weekNumber: checkpoint.weekNumber,
+            },
+            createdAt,
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Lazily and idempotently generate the current user's STATUS ALERTS (task
+   * 9.2) — mirrors the backend NotificationService. Only an ACTIVE Leadership
+   * or Admin assigned to the programme receives them (Auditor is read-only);
+   * only the latest submitted version per team in the CURRENT reporting
+   * checkpoint is evaluated; every alert deep-links to that exact version.
+   */
+  private generateStatusAlerts(): void {
+    const user = this.user;
+    if (user.status !== 'ACTIVE' || !user.programmeId) return;
+    const isLeadershipOrAdmin =
+      user.roles.includes('LEADERSHIP') || user.roles.includes('ADMIN');
+    if (!isLeadershipOrAdmin) return;
+
+    const nowMs = this.now().getTime();
+    const createdAt = new Date(nowMs).toISOString();
+    const sprints = SPRINTS.filter((s) => s.programmeId === user.programmeId);
+    const activeTeams = TEAMS.filter((t) => t.active);
+
+    for (const sprint of sprints) {
+      const checkpoints = CHECKPOINTS.filter(
+        (c) => c.sprintId === sprint.id && isReportingCheckpointOpen(c, nowMs),
+      );
+      for (const checkpoint of checkpoints) {
+        for (const team of activeTeams) {
+          const doc = this.documents.get(docKey(team.id, sprint.id, checkpoint.id));
+          if (doc?.state !== 'SUBMITTED') continue; // never Draft/Missing/Reopened
+
+          const versions = this.versions
+            .filter((v) => v.teamId === team.id && v.checkpointId === checkpoint.id)
+            .sort((a, b) => b.versionNumber - a.versionNumber);
+          const latest = versions[0];
+          if (!latest) continue; // only the latest submitted version
+
+          const types = statusAlertTypesFor({
+            releaseRed: latest.rag.release === 'RED',
+            hasBlocker: latest.hasBlocker,
+            hasLeadershipAsk: latest.hasLeadershipAsk,
+          });
+
+          for (const type of types) {
+            const id = statusAlertKey(user.subject, latest.id, type);
+            if (this.notifications.has(id)) continue; // idempotent generation
+
+            const { title, body } = statusAlertCopy(
+              type,
+              team.name,
+              sprint.label,
+              checkpoint.weekNumber,
+            );
+            this.notifications.set(id, {
+              id,
+              programmeId: user.programmeId,
+              recipientSubject: user.subject,
+              teamId: team.id,
+              teamName: team.name,
+              sprintId: sprint.id,
+              sprintLabel: sprint.label,
+              checkpointId: checkpoint.id,
+              weekNumber: checkpoint.weekNumber,
+              type,
+              title,
+              body,
+              dueAt: checkpoint.dueAt,
+              deepLink: {
+                view: 'leadership',
+                programmeId: user.programmeId,
+                streamId: team.streamId,
+                teamId: team.id,
+                sprintId: sprint.id,
+                weekNumber: checkpoint.weekNumber,
+                versionId: latest.id,
+              },
+              createdAt,
+            });
+          }
+        }
+      }
+    }
   }
 }
 

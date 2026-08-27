@@ -9,6 +9,16 @@ import { AuthProvider } from './auth/AuthProvider';
 import { AuthGate } from './features/auth/AuthGate';
 import { createHttpAuthClient } from './auth/authClient';
 import { createMockAuthClient } from './auth/mockAuthClient';
+import { NotificationClientProvider } from './features/notifications/NotificationClientContext';
+import {
+  createHttpNotificationClient,
+  createMockNotificationClient,
+} from './features/notifications/notificationClient';
+import { VersionClientProvider } from './features/leadership/VersionClientContext';
+import {
+  createHttpVersionClient,
+  createMockVersionClient,
+} from './features/leadership/versionClient';
 import './styles/tokens.css';
 import './styles/global.css';
 
@@ -26,17 +36,37 @@ const repository = createMockRepository();
 // Vite `/api` dev proxy. The in-memory mock client is used ONLY when explicitly
 // requested with VITE_AUTH_MODE=mock (tests/demo); there is no silent fallback
 // to mock when the backend is unavailable.
-const authClient =
-  import.meta.env.VITE_AUTH_MODE === 'mock' ? createMockAuthClient() : createHttpAuthClient();
+const useMock = import.meta.env.VITE_AUTH_MODE === 'mock';
+const authClient = useMock ? createMockAuthClient() : createHttpAuthClient();
+
+// Notifications use the REAL HTTP endpoints by default (session cookie via
+// credentials: 'include', shared API base URL); the mock client is used ONLY
+// under VITE_AUTH_MODE=mock. There is no silent fallback to mock data — an
+// unreachable backend surfaces an explicit connection error in the bell.
+const notificationClient = useMock
+  ? createMockNotificationClient(repository)
+  : createHttpNotificationClient();
+
+// Version history + comparison (task 9.4) uses the REAL Phase 7 HTTP endpoints
+// by default (session cookie via credentials: 'include', shared API base URL);
+// the mock client is used ONLY under VITE_AUTH_MODE=mock, with no silent
+// fallback — an unreachable backend surfaces an explicit connection error.
+const versionClient = useMock
+  ? createMockVersionClient(repository)
+  : createHttpVersionClient();
 
 createRoot(rootElement).render(
   <StrictMode>
     <AuthProvider client={authClient}>
       <AuthGate>
         <RepositoryProvider repository={repository}>
-          <QueryClientProvider client={queryClient}>
-            <App />
-          </QueryClientProvider>
+          <NotificationClientProvider client={notificationClient}>
+            <VersionClientProvider client={versionClient}>
+              <QueryClientProvider client={queryClient}>
+                <App />
+              </QueryClientProvider>
+            </VersionClientProvider>
+          </NotificationClientProvider>
         </RepositoryProvider>
       </AuthGate>
     </AuthProvider>

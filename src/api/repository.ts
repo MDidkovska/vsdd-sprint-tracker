@@ -23,6 +23,7 @@ import type {
   UpdatePayload,
   UpdateVersion,
 } from '../domain/update';
+import type { Notification, NotificationInbox } from '../domain/notifications';
 
 export type Role =
   | 'CONTRIBUTOR'
@@ -145,6 +146,13 @@ export interface Repository {
   recordDecision(input: DecisionInput): Promise<LeadershipDecision>;
   getDecisions(versionId: string): Promise<LeadershipDecision[]>;
   export(input: ExportInput): Promise<ExportSnapshot>;
+
+  // In-app notifications (task 9.1). The inbox load lazily and idempotently
+  // generates the current user's deadline reminders (no cron/background worker);
+  // reads and writes are scoped to the current user (recipient isolation).
+  getNotifications(): Promise<NotificationInbox>;
+  markNotificationRead(id: string): Promise<Notification>;
+  markAllNotificationsRead(): Promise<{ updated: number }>;
 }
 
 /** Stable error codes surfaced to the UI (design.md §6 error envelope). */

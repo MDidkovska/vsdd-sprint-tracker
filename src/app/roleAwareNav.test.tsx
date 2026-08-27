@@ -16,6 +16,10 @@ import { createMockRepository } from '../api/mockRepository';
 import { RepositoryProvider } from '../api/RepositoryContext';
 import { AuthProvider } from '../auth/AuthProvider';
 import { createMockAuthClient } from '../auth/mockAuthClient';
+import { NotificationClientProvider } from '../features/notifications/NotificationClientContext';
+import { createMockNotificationClient } from '../features/notifications/notificationClient';
+import { VersionClientProvider } from '../features/leadership/VersionClientContext';
+import { createMockVersionClient } from '../features/leadership/versionClient';
 
 function renderAppAs(email: string): void {
   const client = createMockAuthClient({ initialUserEmail: email });
@@ -25,7 +29,11 @@ function renderAppAs(email: string): void {
     return (
       <AuthProvider client={client}>
         <RepositoryProvider repository={repository}>
-          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+          <NotificationClientProvider client={createMockNotificationClient(repository)}>
+            <VersionClientProvider client={createMockVersionClient(repository)}>
+              <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+            </VersionClientProvider>
+          </NotificationClientProvider>
         </RepositoryProvider>
       </AuthProvider>
     );

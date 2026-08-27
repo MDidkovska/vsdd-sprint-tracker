@@ -38,6 +38,7 @@ import type {
   UpdateDocument,
   UpdateVersion,
 } from '../domain/documents.js';
+import type { Notification } from '../domain/notifications.js';
 import type {
   Programme,
   ReportingCheckpoint,
@@ -89,6 +90,8 @@ const COLLECTIONS = {
   users: 'users',
   assignments: 'assignments',
   sessions: 'sessions',
+  // In-app notifications (Phase 9, task 9.1).
+  notifications: 'notifications',
 } as const;
 
 /** MongoDB duplicate-key error code. */
@@ -210,6 +213,10 @@ export class MongoDocumentRepository implements DocumentRepository, IdentityRepo
     return this.db.collection<StoredSession>(COLLECTIONS.sessions);
   }
 
+  private get notifications(): Collection<Notification> {
+    return this.db.collection<Notification>(COLLECTIONS.notifications);
+  }
+
   /**
    * Create the stable-envelope indexes. The unique `id` index is what enforces
    * at-most-one draft per aggregate and append-only immutability for versions
@@ -293,6 +300,19 @@ export class MongoDocumentRepository implements DocumentRepository, IdentityRepo
     await this.sessions.createIndex(
       { expiresAt: 1 },
       { name: 'ttl_session_expiry', expireAfterSeconds: 0 },
+    );
+
+    // In-app notifications (Phase 9, task 9.1). The unique `id` index enforces
+    // idempotent generation — a second insert with the same stable key fails,
+    // so re-loading the inbox never duplicates. The recipient index serves the
+    // per-user inbox listing (newest first) and keeps recipients isolated.
+    await this.notifications.createIndex(
+      { id: 1 },
+      { unique: true, name: 'uq_notification_id' },
+    );
+    await this.notifications.createIndex(
+      { recipientSubject: 1, createdAt: -1 },
+      { name: 'ix_notification_recipient' },
     );
   }
 
@@ -954,6 +974,58 @@ export class MongoDocumentRepository implements DocumentRepository, IdentityRepo
     } finally {
       await session.endSession();
     }
+  }
+
+  // --- in-app notifications (Phase 9, task 9.1) ---------------------------
+
+  async insertNotificationIfAbsent(notification: Notification): Promise<boolean> {
+    try {
+      await this.notifications.insertOne({ ...notification });
+      return true;
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        // A notification with this stable key already exists — idempotent
+        // generation, not an error. Nothing is overwritten (read state kept).
+        return false;
+      }
+      throw new RepositoryError('SAVE_FAILED', 'The notification could not be stored.');
+    }
+  }
+
+  async listNotificationsForRecipient(recipientSubject: string): Promise<Notification[]> {
+    const raw = await this.notifications
+      .find({ recipientSubject })
+      .sort({ createdAt: -1, _id: -1 })
+      .toArray();
+    return raw.map((doc) => stripId(doc) as Notification);
+  }
+
+  async getNotification(id: string): Promise<Notification | null> {
+    const raw = await this.notifications.findOne({ id });
+    return raw ? (stripId(raw) as Notification) : null;
+  }
+
+  async markNotificationRead(
+    id: string,
+    recipientSubject: string,
+    readAt: string,
+  ): Promise<Notification | null> {
+    // The recipient guard is part of the filter, so a caller can only ever mark
+    // their OWN notification read (no cross-recipient writes).
+    const updated = await this.notifications.findOneAndUpdate(
+      { id, recipientSubject },
+      { $set: { readAt } },
+      { returnDocument: 'after' },
+    );
+    return updated ? (stripId(updated) as Notification) : null;
+  }
+
+  async markAllNotificationsRead(recipientSubject: string, readAt: string): Promise<number> {
+    const result = await this.notifications.updateMany(
+      { recipientSubject, readAt: { $exists: false } },
+      { $set: { readAt } },
+    );
+    return result.modifiedCount;
   }
 
   async close(): Promise<void> {

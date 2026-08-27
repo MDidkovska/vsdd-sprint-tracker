@@ -33,6 +33,7 @@ import type {
   Stream,
   Team,
 } from '../domain/hierarchy.js';
+import type { Notification } from '../domain/notifications.js';
 import type { ReferenceData } from '../reference/referenceData.js';
 
 /**
@@ -340,6 +341,40 @@ export interface DocumentRepository {
    * first (chronological). Filtering uses only the stable `updateVersionId`.
    */
   listDecisions(versionId: string): Promise<LeadershipDecision[]>;
+
+  // --- in-app notifications (Phase 9, task 9.1) ---------------------------
+
+  /**
+   * Insert a notification only when its stable id does not already exist.
+   * Returns true when a new document was written, false when one already
+   * existed. This primitive is what makes lazy reminder generation IDEMPOTENT —
+   * repeated inbox loads never create duplicates (task 9.1).
+   */
+  insertNotificationIfAbsent(notification: Notification): Promise<boolean>;
+
+  /**
+   * List a single recipient's notifications, newest first. Filtering is by the
+   * stable `recipientSubject` only, so a recipient can never read another
+   * user's notifications (recipient isolation, task 9.1).
+   */
+  listNotificationsForRecipient(recipientSubject: string): Promise<Notification[]>;
+
+  /** Read a notification by id, or null when it does not exist. */
+  getNotification(id: string): Promise<Notification | null>;
+
+  /**
+   * Mark a notification read for a specific recipient. The recipient guard is
+   * part of the update, so marking is scoped to the caller's own notifications
+   * and returns null when the id does not belong to them.
+   */
+  markNotificationRead(
+    id: string,
+    recipientSubject: string,
+    readAt: string,
+  ): Promise<Notification | null>;
+
+  /** Mark every unread notification for a recipient read; returns the count. */
+  markAllNotificationsRead(recipientSubject: string, readAt: string): Promise<number>;
 
   /** Release underlying resources (connection pool). */
   close(): Promise<void>;

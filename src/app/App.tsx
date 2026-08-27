@@ -8,6 +8,7 @@ import { TeamUpdatePage } from '../features/team-update/TeamUpdatePage';
 import { LeadershipPage } from '../features/leadership/LeadershipPage';
 import { AdminConsole } from '../features/admin/AdminConsole';
 import { AuditHistory } from '../features/audit/AuditHistory';
+import { NotificationBell } from '../features/notifications/NotificationBell';
 import styles from './AppShell.module.css';
 
 const TAB_LABELS: Record<AppView, string> = {
@@ -92,6 +93,7 @@ function Header({ allowed }: { allowed: AppView[] }) {
 
       <div className={styles.actions}>
         <span className={styles.badge}>Phase A · mock data</span>
+        <NotificationBell />
         <details className={styles.profileMenu}>
           <summary className={styles.profile} aria-label="Open user menu">
             <span className={styles.avatar} aria-hidden="true">
