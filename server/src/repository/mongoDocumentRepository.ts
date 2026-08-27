@@ -20,11 +20,18 @@
 import {
   MongoClient,
   type AnyBulkWriteOperation,
+  type ClientSession,
   type Collection,
   type Db,
   type Document,
   type Filter,
 } from 'mongodb';
+import type {
+  Assignment,
+  AccountStatus,
+  SessionRecord,
+  UserAccount,
+} from '../domain/accounts.js';
 import type {
   AuditEvent,
   LeadershipDecision,
@@ -40,6 +47,8 @@ import type {
 } from '../domain/hierarchy.js';
 import type { ReferenceData } from '../reference/referenceData.js';
 import type {
+  AuditPageResult,
+  AuditQuery,
   DocumentRepository,
   RecordDecisionInput,
   ReopenOutcome,
@@ -50,7 +59,15 @@ import type {
   UpdateQuery,
   WriteOutcome,
 } from './documentRepository.js';
-import { ImmutableViolationError, RepositoryError } from './errors.js';
+import { DuplicateKeyError, ImmutableViolationError, RepositoryError } from './errors.js';
+import type {
+  ApproveUserAtomicInput,
+  ChangeStatusAtomicInput,
+  CreateAdminAtomicInput,
+  CreateUserAtomicInput,
+  IdentityRepository,
+  UpdateAssignmentAtomicInput,
+} from './identityRepository.js';
 
 export interface MongoDocumentRepositoryConfig {
   uri: string;
@@ -68,10 +85,26 @@ const COLLECTIONS = {
   teams: 'teams',
   sprints: 'sprints',
   checkpoints: 'checkpoints',
+  // Local-account identity collections (Phase 8, design.md §5a).
+  users: 'users',
+  assignments: 'assignments',
+  sessions: 'sessions',
 } as const;
 
 /** MongoDB duplicate-key error code. */
 const DUPLICATE_KEY = 11000;
+
+/**
+ * Internal session storage shape. `expiresAt` is a BSON `Date` (not the domain
+ * ISO string) so the TTL index can reap expired sessions; it is mapped back to
+ * an ISO string on read to keep the vendor-neutral {@link SessionRecord} shape.
+ */
+interface StoredSession {
+  id: string;
+  userId: string;
+  createdAt: string;
+  expiresAt: Date;
+}
 
 function isDuplicateKeyError(error: unknown): boolean {
   return (
@@ -105,7 +138,7 @@ function stripId<T extends Document>(raw: T): Omit<T, '_id'> {
   return rest;
 }
 
-export class MongoDocumentRepository implements DocumentRepository {
+export class MongoDocumentRepository implements DocumentRepository, IdentityRepository {
   private readonly client: MongoClient;
   private readonly db: Db;
 
@@ -163,6 +196,18 @@ export class MongoDocumentRepository implements DocumentRepository {
 
   private get checkpoints(): Collection<ReportingCheckpoint> {
     return this.db.collection<ReportingCheckpoint>(COLLECTIONS.checkpoints);
+  }
+
+  private get users(): Collection<UserAccount> {
+    return this.db.collection<UserAccount>(COLLECTIONS.users);
+  }
+
+  private get assignments(): Collection<Assignment> {
+    return this.db.collection<Assignment>(COLLECTIONS.assignments);
+  }
+
+  private get sessions(): Collection<StoredSession> {
+    return this.db.collection<StoredSession>(COLLECTIONS.sessions);
   }
 
   /**
@@ -225,6 +270,29 @@ export class MongoDocumentRepository implements DocumentRepository {
     await this.checkpoints.createIndex(
       { sprintId: 1, weekNumber: 1 },
       { name: 'ix_checkpoint_sprint' },
+    );
+
+    // Local-account identity collections (Phase 8). Unique user id + unique
+    // (lowercased) email — the email uniqueness index is what enforces "one
+    // account per email" even under a registration race.
+    await this.users.createIndex({ id: 1 }, { unique: true, name: 'uq_user_id' });
+    await this.users.createIndex({ email: 1 }, { unique: true, name: 'uq_user_email' });
+    await this.users.createIndex({ status: 1 }, { name: 'ix_user_status' });
+    // One assignment document per user.
+    await this.assignments.createIndex(
+      { userId: 1 },
+      { unique: true, name: 'uq_assignment_user' },
+    );
+    // Sessions: unique id (the token hash) + a lookup by user for revocation.
+    // `expiresAt` is a BSON Date carrying a TTL index (expireAfterSeconds: 0),
+    // so MongoDB reaps expired sessions automatically. Reads ALSO check expiry
+    // explicitly, so an expired session is rejected immediately even before the
+    // background TTL monitor runs (design.md §5a).
+    await this.sessions.createIndex({ id: 1 }, { unique: true, name: 'uq_session_id' });
+    await this.sessions.createIndex({ userId: 1 }, { name: 'ix_session_user' });
+    await this.sessions.createIndex(
+      { expiresAt: 1 },
+      { name: 'ttl_session_expiry', expireAfterSeconds: 0 },
     );
   }
 
@@ -621,6 +689,26 @@ export class MongoDocumentRepository implements DocumentRepository {
     return raw.map((doc) => stripId(doc) as AuditEvent);
   }
 
+  async queryAudit(query: AuditQuery): Promise<AuditPageResult> {
+    const filter: Filter<AuditEvent> = {};
+    if (query.userId) filter.aggregateId = query.userId;
+    if (query.entityId) filter.entityId = query.entityId;
+    if (query.action) filter.action = query.action;
+
+    const [raw, total] = await Promise.all([
+      this.audit
+        .find(filter)
+        // Newest-first; `_id` (monotonic ObjectId) is the deterministic
+        // tie-breaker when timestamps collide within a millisecond.
+        .sort({ timestamp: -1, _id: -1 })
+        .skip(query.offset)
+        .limit(query.limit)
+        .toArray(),
+      this.audit.countDocuments(filter),
+    ]);
+    return { events: raw.map((doc) => stripId(doc) as AuditEvent), total };
+  }
+
   async recordDecision(input: RecordDecisionInput): Promise<LeadershipDecision> {
     const { decision, audit } = input;
 
@@ -662,6 +750,210 @@ export class MongoDocumentRepository implements DocumentRepository {
       .sort({ createdAt: 1 })
       .toArray();
     return raw.map((doc) => stripId(doc) as LeadershipDecision);
+  }
+
+  // --- local-account identity (Phase 8, design.md §5a) --------------------
+
+  async insertUser(user: UserAccount): Promise<void> {
+    try {
+      await this.users.insertOne({ ...user });
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        // A duplicate id or (lowercased) email — surface a neutral duplicate so
+        // the service maps it to EMAIL_TAKEN without leaking the driver error.
+        throw new DuplicateKeyError('A user with this email already exists.');
+      }
+      throw new RepositoryError('SAVE_FAILED', 'The user could not be stored.');
+    }
+  }
+
+  async getUserById(id: string): Promise<UserAccount | null> {
+    const raw = await this.users.findOne({ id });
+    return raw ? (stripId(raw) as UserAccount) : null;
+  }
+
+  async getUserByEmail(email: string): Promise<UserAccount | null> {
+    const raw = await this.users.findOne({ email: email.toLowerCase() });
+    return raw ? (stripId(raw) as UserAccount) : null;
+  }
+
+  async listUsers(status?: AccountStatus): Promise<UserAccount[]> {
+    const filter = status ? { status } : {};
+    const raw = await this.users.find(filter).sort({ createdAt: 1 }).toArray();
+    return raw.map((doc) => stripId(doc) as UserAccount);
+  }
+
+  async updateUserStatus(
+    id: string,
+    status: AccountStatus,
+    updatedAt: string,
+  ): Promise<UserAccount | null> {
+    const updated = await this.users.findOneAndUpdate(
+      { id },
+      { $set: { status, updatedAt } },
+      { returnDocument: 'after' },
+    );
+    return updated ? (stripId(updated) as UserAccount) : null;
+  }
+
+  async getAssignment(userId: string): Promise<Assignment | null> {
+    const raw = await this.assignments.findOne({ userId });
+    return raw ? (stripId(raw) as Assignment) : null;
+  }
+
+  async upsertAssignment(assignment: Assignment): Promise<void> {
+    await this.assignments.replaceOne(
+      { userId: assignment.userId },
+      { ...assignment },
+      { upsert: true },
+    );
+  }
+
+  async createSession(session: SessionRecord): Promise<void> {
+    try {
+      // Persist expiresAt as a BSON Date so the TTL index can reap it; the
+      // domain contract keeps ISO strings elsewhere.
+      await this.sessions.insertOne({
+        id: session.id,
+        userId: session.userId,
+        createdAt: session.createdAt,
+        expiresAt: new Date(session.expiresAt),
+      });
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        throw new DuplicateKeyError('A session with this id already exists.');
+      }
+      throw new RepositoryError('SAVE_FAILED', 'The session could not be stored.');
+    }
+  }
+
+  async getSession(id: string): Promise<SessionRecord | null> {
+    const raw = await this.sessions.findOne({ id });
+    if (!raw) return null;
+    const stored = stripId(raw) as StoredSession;
+    // Reject an expired session immediately, even before the background TTL
+    // monitor runs, and reap it opportunistically.
+    if (stored.expiresAt.getTime() <= Date.now()) {
+      await this.sessions.deleteOne({ id });
+      return null;
+    }
+    // Map the BSON Date back to the vendor-neutral ISO-string contract.
+    return {
+      id: stored.id,
+      userId: stored.userId,
+      createdAt: stored.createdAt,
+      expiresAt: stored.expiresAt.toISOString(),
+    };
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    await this.sessions.deleteOne({ id });
+  }
+
+  async deleteSessionsForUser(userId: string): Promise<void> {
+    await this.sessions.deleteMany({ userId });
+  }
+
+  // --- atomic identity workflows (Phase 8 repair) --------------------------
+  //
+  // Each is a single MongoDB transaction: all writes commit together or none do
+  // (a mid-way failure aborts and rolls back). Transactions require a replica
+  // set / mongos, which the production store and the tests provide.
+
+  async createUserWithAudit(input: CreateUserAtomicInput): Promise<void> {
+    await this.runIdentityTransaction(async (session) => {
+      await this.users.insertOne({ ...input.user }, { session });
+      await this.audit.insertOne({ ...input.audit }, { session });
+    }, 'The account could not be created.');
+  }
+
+  async approveUserWithAssignment(input: ApproveUserAtomicInput): Promise<UserAccount> {
+    let updated: UserAccount | undefined;
+    await this.runIdentityTransaction(async (session) => {
+      await this.assignments.replaceOne(
+        { userId: input.assignment.userId },
+        { ...input.assignment },
+        { upsert: true, session },
+      );
+      const doc = await this.users.findOneAndUpdate(
+        { id: input.userId },
+        { $set: { status: input.status, updatedAt: input.updatedAt } },
+        { returnDocument: 'after', session },
+      );
+      if (!doc) throw new RepositoryError('NOT_FOUND', 'User not found.');
+      for (const event of input.audits) {
+        await this.audit.insertOne({ ...event }, { session });
+      }
+      updated = stripId(doc) as UserAccount;
+    }, 'The approval could not be stored.');
+    return updated as UserAccount;
+  }
+
+  async updateAssignmentWithAudit(input: UpdateAssignmentAtomicInput): Promise<void> {
+    await this.runIdentityTransaction(async (session) => {
+      await this.assignments.replaceOne(
+        { userId: input.assignment.userId },
+        { ...input.assignment },
+        { upsert: true, session },
+      );
+      await this.audit.insertOne({ ...input.audit }, { session });
+    }, 'The assignment could not be stored.');
+  }
+
+  async changeUserStatusWithAudit(input: ChangeStatusAtomicInput): Promise<UserAccount> {
+    let updated: UserAccount | undefined;
+    await this.runIdentityTransaction(async (session) => {
+      const doc = await this.users.findOneAndUpdate(
+        { id: input.userId },
+        { $set: { status: input.status, updatedAt: input.updatedAt } },
+        { returnDocument: 'after', session },
+      );
+      if (!doc) throw new RepositoryError('NOT_FOUND', 'User not found.');
+      if (input.revokeSessions) {
+        await this.sessions.deleteMany({ userId: input.userId }, { session });
+      }
+      await this.audit.insertOne({ ...input.audit }, { session });
+      updated = stripId(doc) as UserAccount;
+    }, 'The status change could not be stored.');
+    return updated as UserAccount;
+  }
+
+  async createAdminAtomically(input: CreateAdminAtomicInput): Promise<void> {
+    await this.runIdentityTransaction(async (session) => {
+      await this.users.insertOne({ ...input.user }, { session });
+      await this.assignments.replaceOne(
+        { userId: input.assignment.userId },
+        { ...input.assignment },
+        { upsert: true, session },
+      );
+      await this.audit.insertOne({ ...input.audit }, { session });
+    }, 'The admin account could not be created.');
+  }
+
+  /**
+   * Run an identity write inside a transaction, translating a duplicate-key
+   * collision to a neutral {@link DuplicateKeyError} and any other failure to a
+   * SAVE_FAILED (unless it is already a RepositoryError). withTransaction rolls
+   * back automatically when the callback throws.
+   */
+  private async runIdentityTransaction(
+    work: (session: ClientSession) => Promise<void>,
+    failMessage: string,
+  ): Promise<void> {
+    const session = this.client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await work(session);
+      });
+    } catch (error) {
+      if (isDuplicateKeyError(error)) {
+        throw new DuplicateKeyError('A record with this key already exists.');
+      }
+      if (error instanceof RepositoryError) throw error;
+      throw new RepositoryError('SAVE_FAILED', failMessage);
+    } finally {
+      await session.endSession();
+    }
   }
 
   async close(): Promise<void> {

@@ -91,11 +91,13 @@ describe('GET /api/v1/programmes/:programmeId/hierarchy', () => {
     expect(teamIds).toHaveLength(8);
   });
 
-  it('returns 404 with the error envelope for an unknown programme', async () => {
+  it('returns 403 for a programme the caller is not assigned to (anti-enumeration)', async () => {
+    // Programme scoping refuses BEFORE resolving existence, so an unknown or
+    // simply-unassigned programme is indistinguishable (no enumeration).
     const response = await app.inject({ method: 'GET', url: '/api/v1/programmes/missing/hierarchy' });
-    expect(response.statusCode).toBe(404);
+    expect(response.statusCode).toBe(403);
     expect(response.json()).toMatchObject({
-      error: { code: 'NOT_FOUND', fieldErrors: [] },
+      error: { code: 'PERMISSION_DENIED', fieldErrors: [] },
     });
   });
 });
@@ -119,8 +121,10 @@ describe('GET /api/v1/programmes/:programmeId/sprints', () => {
     expect(sprints[0]?.status).toBe('CURRENT');
   });
 
-  it('returns an empty array when no sprint matches the status', async () => {
-    // A second programme with a stream but no sprints exercises the empty case.
+  it('returns an empty array when no sprint matches the status (for an assigned member)', async () => {
+    // A second programme with no sprints exercises the empty case. Programme
+    // scoping means only a MEMBER of that programme may read it, so we drive the
+    // service directly with a principal assigned to empty-prog.
     await repository.seedReferenceData({
       programmes: [{ id: 'empty-prog', name: 'Empty', active: true }],
       streams: [],
@@ -128,18 +132,28 @@ describe('GET /api/v1/programmes/:programmeId/sprints', () => {
       sprints: [],
       checkpoints: [],
     });
-    const response = await app.inject({
-      method: 'GET',
-      url: '/api/v1/programmes/empty-prog/sprints?status=planned',
-    });
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual([]);
+    const emptyProgAuth = {
+      getCurrentUser: (): CurrentUser => ({
+        subject: 'e',
+        email: 'e@example.com',
+        displayName: 'Empty Member',
+        initials: 'EM',
+        roleLabel: 'Programme Leadership',
+        status: 'ACTIVE',
+        programmeId: 'empty-prog',
+        roles: ['LEADERSHIP'],
+        assignedTeamIds: [],
+        canViewAll: true,
+      }),
+    };
+    const service = new HierarchyService(repository, emptyProgAuth);
+    await expect(service.getSprints('empty-prog', 'PLANNED')).resolves.toEqual([]);
   });
 
-  it('returns 404 for sprints of an unknown programme', async () => {
+  it('returns 403 for sprints of a programme the caller is not assigned to', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/programmes/missing/sprints' });
-    expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } });
   });
 
   it('returns 400 VALIDATION_FAILED for an unknown status value', async () => {

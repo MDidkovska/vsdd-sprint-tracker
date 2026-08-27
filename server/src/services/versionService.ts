@@ -21,7 +21,9 @@
  * services.
  */
 import { docKey, type AuditEvent, type UpdateVersion } from '../domain/documents.js';
-import type { ReportingCheckpoint, Team } from '../domain/hierarchy.js';
+import type { ReportingCheckpoint, Sprint, Team } from '../domain/hierarchy.js';
+import type { AuthContext } from '../auth/mockAuth.js';
+import { assertCanViewTeam } from '../auth/authorization.js';
 import { ApiError } from '../http/errorEnvelope.js';
 import { compareVersions, type VersionComparison } from '../domain/versionComparison.js';
 
@@ -33,6 +35,7 @@ import { compareVersions, type VersionComparison } from '../domain/versionCompar
 export interface VersionReadPort {
   getTeam(teamId: string): Promise<Team | null>;
   getCheckpoint(checkpointId: string): Promise<ReportingCheckpoint | null>;
+  getSprint(sprintId: string): Promise<Sprint | null>;
   listVersions(teamId: string, checkpointId: string): Promise<UpdateVersion[]>;
   getVersion(id: string): Promise<UpdateVersion | null>;
   /** The complete unified audit trail for an update aggregate, newest first. */
@@ -61,9 +64,11 @@ export interface VersionApi {
 
 export class VersionService implements VersionApi {
   private readonly repository: VersionReadPort;
+  private readonly auth: AuthContext;
 
-  constructor(repository: VersionReadPort) {
+  constructor(repository: VersionReadPort, auth: AuthContext) {
     this.repository = repository;
+    this.auth = auth;
   }
 
   async getVersions(teamId: string, checkpointId: string): Promise<UpdateVersion[]> {
@@ -79,6 +84,12 @@ export class VersionService implements VersionApi {
     if (!checkpoint) {
       throw ApiError.notFound(`Reporting checkpoint "${checkpointId}" was not found.`);
     }
+    // Resolve the owning programme and authorise team-scoped read access.
+    const sprint = await this.repository.getSprint(checkpoint.sprintId);
+    if (!sprint) {
+      throw ApiError.notFound(`Sprint "${checkpoint.sprintId}" was not found.`);
+    }
+    assertCanViewTeam(this.auth.getCurrentUser(), teamId, sprint.programmeId);
     return this.repository.listVersions(teamId, checkpointId);
   }
 
@@ -87,6 +98,9 @@ export class VersionService implements VersionApi {
     if (!version) {
       throw ApiError.notFound(`Submitted version "${versionId}" was not found.`);
     }
+    // A version id is guessable; team-scoped read access is enforced here so it
+    // cannot be used to read another team's / programme's evidence.
+    assertCanViewTeam(this.auth.getCurrentUser(), version.teamId, version.programmeId);
     return version;
   }
 
@@ -97,6 +111,7 @@ export class VersionService implements VersionApi {
     if (!version) {
       throw ApiError.notFound(`Submitted version "${versionId}" was not found.`);
     }
+    assertCanViewTeam(this.auth.getCurrentUser(), version.teamId, version.programmeId);
     // Return the whole update's history (submit + reopen + resubmit + decision),
     // newest first, keyed by the stable update-aggregate id.
     const aggregateId = docKey(version.teamId, version.sprintId, version.checkpointId);
@@ -125,6 +140,9 @@ export class VersionService implements VersionApi {
     if (!other) {
       throw ApiError.notFound(`Submitted version "${compareVersionId}" was not found.`);
     }
+
+    // Team-scoped read access for the base version (both must share the team).
+    assertCanViewTeam(this.auth.getCurrentUser(), base.teamId, base.programmeId);
 
     // A field-by-field diff is only meaningful within a single update line (the
     // same team + sprint + checkpoint). Comparing versions from different teams

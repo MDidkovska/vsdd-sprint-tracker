@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { PROGRAMME_ID } from '../config';
 
-export type AppView = 'team' | 'leadership';
+export type AppView = 'team' | 'leadership' | 'admin' | 'audit';
 
 export interface Selection {
   programmeId: string;

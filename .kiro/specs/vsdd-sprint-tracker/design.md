@@ -20,7 +20,11 @@ Use this stack for the first implementation unless the target PTSB platform mand
 - API: REST/JSON with an OpenAPI 3.1 contract
 - Backend reference: Node.js + TypeScript + Fastify/NestJS, or an equivalent supported enterprise service framework
 - Database: **not selected in Phase A.** Phase A uses only the replaceable mock repository and adds no database dependency. Phase B persistence is designed to be database-agnostic with a preferred document-oriented (NoSQL) model. Vendor selection is deferred until enterprise platform constraints are known; likely candidates include Azure Cosmos DB or MongoDB. See §4a for the document aggregate and schema-version strategy.
-- Authentication: enterprise OIDC; application receives stable subject ID and group/role claims
+- Authentication (PoC): **local accounts** — email + password (Argon2id) with
+  Admin approval and opaque server-side sessions. It lives behind a small
+  authentication interface so enterprise OIDC (which would instead supply a
+  stable subject ID and group/role claims) can replace it later without
+  rewriting business services. Enterprise OIDC is a future decision (task 0.2).
 - Testing: Vitest, Testing Library, Playwright and API integration tests
 - Observability: structured application telemetry without logging free-text status content
 
@@ -61,7 +65,24 @@ Sprint
 ReportingCheckpoint
   id, sprintId, weekNumber(1|2), opensAt, dueAt, closesAt, status
 
-TeamAssignment
+UserAccount                        // `users` collection (local-auth PoC)
+  id, email(unique, lowercased), displayName
+  passwordHash(Argon2id, never exposed)
+  status(PENDING|ACTIVE|REJECTED|SUSPENDED)
+  requestedTeam?(free text from registration), createdAt, updatedAt
+
+Assignment                         // `assignments` collection (one per user)
+  id(=userId), userId, programmeId?
+  teamIds[]                        // teams the user may access
+  roles[](CONTRIBUTOR|TEAM_LEAD|LEADERSHIP|ADMIN|AUDITOR)
+  updatedAt
+
+Session                            // `sessions` collection (opaque, server-side)
+  id(=sha256(token)), userId, createdAt, expiresAt
+  // the raw random token is sent ONLY in an HttpOnly SameSite cookie;
+  // it is never stored — only its hash — and never logged
+
+TeamAssignment                     // legacy per-team shape (superseded by Assignment)
   id, teamId, userSubject, role, validFrom, validTo?
 
 UpdateDraft
@@ -86,8 +107,14 @@ LeadershipDecision
   id, updateVersionId, decision, ownerSubject, dueDate?, status, createdAt
 
 AuditEvent
-  id, programmeId, entityType, entityId, action, actorSubject
-  timestamp, previousVersion?, newVersion?, reason?, correlationId
+  id, programmeId, aggregateId, entityType, entityId, action, actorSubject
+  timestamp, previousVersion?, newVersion?, reason?, filterSummary?, correlationId
+  // update actions:  DRAFT_SAVED | SUBMITTED | REOPENED | DECISION_RECORDED | EXPORT_CREATED
+  // account actions: USER_REGISTERED | USER_APPROVED | USER_REJECTED
+  //                  ASSIGNMENT_CHANGED | USER_SUSPENDED | LOGIN_FAILED | LOGOUT
+  //                  ADMIN_BOOTSTRAPPED
+  // account events store only stable ids + action; never a password, session
+  // token or user-authored status content
 ```
 
 ### Key invariants
@@ -176,7 +203,12 @@ The following decision fixes the concrete stack used to build and run the persis
 - **Schema versioning:** stored documents retain `schemaVersion` and are read through the read-time upcasting defined in §4a. No bulk rewrites.
 - **Draft writes:** use optimistic concurrency via the `revision`/ETag guard defined in §4a; a stale revision returns `409` and overwrites nothing.
 - **Immutability:** submitted versions and audit events remain immutable / append-only.
-- **Authentication:** remains mocked for the local PoC. Production enterprise OIDC integration is Phase 8.
+- **Authentication (Phase 8):** implemented as **local accounts** — email +
+  password hashed with Argon2id, Admin approval and opaque server-side sessions
+  (see §5a). It sits behind small `Authenticator` / `AuthorizationPolicy`
+  interfaces so a future enterprise OIDC provider can replace local
+  authentication without rewriting business services. Enterprise OIDC is **not**
+  implemented for the PoC and remains a future decision (task 0.2).
 
 ### Still-unresolved enterprise constraints
 
@@ -203,7 +235,163 @@ UI labels:
 - Reopened — previously submitted content is being revised; latest submitted version remains visible with warning.
 - Stale — submitted version belongs to an earlier checkpoint or exceeded an agreed freshness rule.
 
+## 5a. Authentication and authorisation (local accounts, Phase 8)
+
+The PoC uses **local account** authentication. It is deliberately structured so
+that a future enterprise OIDC provider can replace only the authentication seam.
+
+### Interfaces (the replaceable seams)
+
+- `PasswordHasher` — `hash(password)` / `verify(hash, password)` using
+  **Argon2id**. Unused once OIDC replaces local passwords.
+- `SessionStore` — create / find / delete / delete-all-for-user over the
+  `sessions` collection.
+- `RequestAuthenticator` — resolves the request's cookie into an authenticated
+  **principal** (`CurrentUser` incl. `status`) by looking up the session and
+  re-reading the user + assignment on **every** request. This is the ONE seam an
+  OIDC middleware replaces: it would resolve a token/claims instead of a session
+  cookie and produce the same principal shape.
+- `AuthorizationPolicy` — pure functions over a principal, **programme-scoped**
+  (`assertActive`, `assertProgrammeMember(programmeId)`,
+  `assertCanViewTeam(teamId, programmeId)`, `assertCanEditTeam(teamId, programmeId)`,
+  `assertCanSubmitTeam(teamId, programmeId)`, `assertCanViewProgramme(programmeId)`,
+  `assertCanRecordDecision(programmeId)`, `assertCanExport(programmeId)`,
+  `assertAdmin`, `assertCanReadAudit`). The principal carries a single
+  `programmeId`; a LEADERSHIP/ADMIN/AUDITOR role grants access ONLY to that
+  programme, never globally — every programme-level check verifies the requested
+  programme id against the principal's. Business services (Hierarchy, Draft,
+  Submit, Reopen, Decision, Summary, Version, Export) call these themselves; the
+  HTTP hook is defence-in-depth, not the only control. Requesting a programme
+  the principal is not assigned to is a `403` **before** any lookup, so it cannot
+  be used to enumerate which programmes/teams exist.
+
+The authenticated principal (`CurrentUser`) therefore carries `programmeId` in
+addition to `status`, `roles` and `assignedTeamIds`; it is populated from the
+user's `Assignment` in `buildPrincipal`.
+
+Business services keep depending on the existing `AuthContext.getCurrentUser()`
+seam. In the running server that context is backed by request-scoped storage
+(`AsyncLocalStorage`) populated by the authentication hook, so services never
+learn whether the principal came from a local session or a future OIDC token.
+
+The frontend talks to these endpoints through a small `AuthClient` seam. Its
+**default runtime mode is the real HTTP client** (session cookie,
+`credentials: 'include'`, base URL from `VITE_API_BASE_URL` or the Vite `/api`
+dev proxy). An in-memory mock client is used ONLY when `VITE_AUTH_MODE=mock`
+(tests/demo); the app never silently falls back to mock authentication when the
+backend is unreachable — it shows an explicit connection-error state.
+
+### Registration → approval flow
+
+```mermaid
+stateDiagram-v2
+  [*] --> PENDING: POST /auth/register (display name, email, password, requested team?)
+  PENDING --> ACTIVE: Admin approve + assign programme/team/roles
+  PENDING --> REJECTED: Admin reject
+  ACTIVE --> SUSPENDED: Admin suspend
+  PENDING --> [*]: cannot access programme data
+  REJECTED --> [*]: access denied
+  SUSPENDED --> [*]: access lost on next request
+```
+
+- Registration stores a `PENDING` user (Argon2id hash) and appends a
+  `USER_REGISTERED` audit event. `PENDING` users may sign in (to see the pending
+  screen) but cannot reach programme data.
+- Login verifies the password, and for `PENDING`/`ACTIVE` accounts issues a
+  random opaque session; `REJECTED`/`SUSPENDED` accounts are refused. A failed
+  login appends `LOGIN_FAILED` (no password/token recorded).
+- Approval sets `ACTIVE` and writes the `assignments` document; the user gains
+  access on the next request because the authenticator re-reads status +
+  assignment every time. A user can never approve/reject/suspend or assign
+  their own account (self-service escalation is refused server-side).
+
+### Sessions and cookies
+
+- The session token is 256 bits of CSPRNG randomness, base64url-encoded, sent
+  only in an `HttpOnly`, `SameSite=Lax`, `Path=/` cookie. `Secure` is set
+  outside local development. Tokens are never placed in `localStorage`.
+- The `sessions` document is keyed by the **SHA-256 hash** of the token, so a
+  database disclosure never yields a usable session. Sessions carry `expiresAt`;
+  an expired or missing/unknown session is a `401 SESSION_EXPIRED`. Logout and
+  suspension delete the session server-side (revocation).
+- `expiresAt` is stored as a **BSON `Date`** carrying a **TTL index**
+  (`expireAfterSeconds: 0`) so MongoDB reaps expired sessions automatically;
+  reads ALSO check expiry explicitly so an expired session is rejected
+  immediately, before the background TTL monitor runs. The domain/API contract
+  keeps `expiresAt` as an ISO string.
+
+### Persisted audit history
+
+Account/security events (`USER_REGISTERED`, `USER_APPROVED`, `USER_REJECTED`,
+`ASSIGNMENT_CHANGED`, `USER_SUSPENDED`, `LOGIN_FAILED`, `LOGOUT`) are appended to
+the `auditEvents` collection, so the history survives restarts and is visible
+from any authorised session. `GET /api/v1/audit` serves it newest-first, paged,
+filterable by `userId`/`entityId`/`action`, restricted to **Admin and Auditor**.
+The response is a sanitised projection: only stable ids, action, actor, entity/
+aggregate ids and timestamp — never a password, session token or user-authored
+content (e.g. a reopen reason).
+
+### Permission matrix
+
+| Capability / endpoint | CONTRIBUTOR | TEAM_LEAD | LEADERSHIP | ADMIN | AUDITOR |
+|---|---|---|---|---|---|
+| `GET /me` (any authenticated status) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| View hierarchy / assigned team update | scope | scope | ✓ | ✓ | ✓ |
+| `PUT` draft (save) | scope | scope | — | — | — |
+| `POST` submit | — | scope | — | — | — |
+| `POST` reopen | — | scope | — | — | — |
+| Leadership summary / filtered projection | — | — | ✓ | ✓ | ✓ |
+| Version history / audit / compare | scope | scope | ✓ | ✓ | ✓ |
+| `POST` decision | — | — | ✓ | ✓ | — |
+| `POST` export | — | — | ✓ | ✓ | — |
+| Persisted audit history (`GET /audit`) | — | — | — | ✓ | ✓ |
+| Admin user/assignment endpoints | — | — | — | ✓ | — |
+
+"scope" = allowed only for teams in the user's assignment. **Every row is also
+programme-scoped**: a LEADERSHIP/ADMIN/AUDITOR role applies only to the
+principal's assigned programme, so cross-programme access is refused. All rows
+additionally require `status = ACTIVE`; `PENDING`/`REJECTED`/`SUSPENDED` are
+denied for everything except `GET /me`. Authorisation is **default-deny**:
+anything not explicitly granted is refused in the API, not merely hidden in the
+UI, and is enforced inside the services (not only at the HTTP edge).
+
+### Admin assignment validation + atomic identity workflows
+
+Admin approval / assignment changes are validated server-side against real
+reference data: the `programmeId` must exist, every `teamId` must exist, be
+active and belong to that programme, and a Contributor/Team-Lead assignment
+requires at least one team — phantom or cross-programme ids are rejected with
+`VALIDATION_FAILED`.
+
+Identity workflows that touch more than one collection are **atomic** (a single
+document-store transaction; the in-memory adapter uses staged-commit rollback):
+registration (user + `USER_REGISTERED`), approval (ACTIVE status + assignment +
+`USER_APPROVED` + `ASSIGNMENT_CHANGED`), assignment change (assignment + audit),
+rejection/suspension (status + session revocation + audit) and the first-admin
+bootstrap (user + ADMIN assignment + `ADMIN_BOOTSTRAPPED`). A mid-way failure
+rolls everything back, so an interrupted workflow never leaves an ACTIVE user
+without an assignment (bootstrap is safely retryable).
+
 ## 6. API design
+
+### Authentication and admin endpoints (local accounts, Phase 8)
+
+```http
+POST /api/v1/auth/register        // { displayName, email, password, requestedTeam? } -> 201 PENDING
+POST /api/v1/auth/login           // { email, password } -> 200 + Set-Cookie session; 401 on failure
+POST /api/v1/auth/logout          // clears + revokes the session
+GET  /api/v1/me                   // authenticated principal incl. status (session-backed)
+GET  /api/v1/admin/users?status=PENDING   // admin: users filtered by status
+POST /api/v1/admin/users/{userId}/approve // admin: approve (with programme/team/roles)
+POST /api/v1/admin/users/{userId}/reject  // admin: reject a pending user
+PUT  /api/v1/admin/users/{userId}/assignments // admin: set/modify programme/team/roles
+POST /api/v1/admin/users/{userId}/suspend // admin: suspend + revoke sessions
+GET  /api/v1/audit?userId=&entityId=&action=&limit=&offset= // admin/auditor: persisted audit history
+```
+
+Registration and login are rate-limited. `401` marks unauthenticated / expired
+sessions; `403` marks an authenticated-but-unauthorised request; `429` marks a
+rate-limited request. Password hashes are never returned by any endpoint.
 
 ### Read endpoints
 
@@ -468,9 +656,13 @@ Production CSS may use approved OKLCH equivalents, but exported documents and de
 
 ## 13. Security design
 
-- Validate and authorise every request server-side against programme/team assignments.
+- Validate and authorise every request server-side against programme/team assignments (default-deny).
+- Hash passwords with Argon2id; never store or log plaintext passwords; never return a password hash from any endpoint.
+- Use random, opaque, server-side sessions; store only the token's hash; send only the session id in an `HttpOnly`, `SameSite` cookie; set `Secure` outside local development; never persist auth tokens in localStorage.
+- Re-validate account status and assignments on every authenticated request so a rejected/suspended account loses access immediately; delete sessions on logout and suspension.
+- Rate-limit registration and login; a user can never approve/assign/suspend their own account.
 - Encode user-authored text on output; do not render stored HTML.
-- Use same-site secure cookies or an approved token pattern; never persist access tokens in localStorage.
+- Apply CSP with an allowlist appropriate to the deployment platform.
 - Apply CSP with an allowlist appropriate to the deployment platform.
 - Use parameterised / server-side-constructed queries; never build datastore queries from raw user input regardless of the selected document store.
 - Protect export endpoints against programme-data enumeration.
@@ -501,6 +693,18 @@ Production CSS may use approved OKLCH equivalents, but exported documents and de
 - Reopen reason and immutable prior version.
 - Export scoping.
 
+### Authentication and authorisation (Phase 8)
+
+- Registration and duplicate-email handling; Argon2id hashing (hash ≠ plaintext, verify true/false).
+- Login success / wrong password / unknown user / rate limiting.
+- Session creation, expiry, logout and suspension-driven revocation.
+- `PENDING`, `REJECTED` and `SUSPENDED` access denial; approval grants access on the next request.
+- Team-Contributor vs Team-Lead scoping and Leadership/Admin/Auditor permissions.
+- Privilege-escalation attempts (self-approve / self-assign / non-admin admin call) refused.
+- Negative authorisation for **every** protected write, reopen, decision, admin and export endpoint (401 unauthenticated, 403 unauthorised).
+- Passwords and session tokens absent from API responses and audit events.
+- `bootstrap-admin` idempotency.
+
 ### End to end
 
 1. Contributor edits and auto-saves a draft.
@@ -524,5 +728,5 @@ Production CSS may use approved OKLCH equivalents, but exported documents and de
 3. Build React screens against repository interfaces, not direct browser storage.
 4. Implement the server API and document-store containers/collections (see §4a); no relational migration step is implied.
 5. Swap the mock adapter for the real API behind the same query hooks.
-6. Add OIDC/RBAC, audit, notifications and export.
+6. Add local-account authentication/RBAC (behind interfaces that a future OIDC provider can replace), audit, notifications and export.
 7. Run the acceptance and security suites before pilot rollout.

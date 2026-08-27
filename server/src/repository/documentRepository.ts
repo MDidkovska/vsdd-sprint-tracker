@@ -20,6 +20,7 @@
  * storage primitive those endpoints build on.
  */
 import type {
+  AuditAction,
   AuditEvent,
   LeadershipDecision,
   UpdateDocument,
@@ -171,6 +172,28 @@ export interface RecordDecisionInput {
   audit: AuditEvent;
 }
 
+/**
+ * A filtered, paginated audit-history query (Phase 8 repair, persisted admin
+ * audit endpoint). Filters use only stable envelope fields (never payload):
+ *  - `userId`   matches the stable per-user aggregate key (`aggregateId`);
+ *  - `entityId` matches the specific entity the event is about;
+ *  - `action`   matches a single audit action.
+ * Results are newest-first; `limit`/`offset` page the result set.
+ */
+export interface AuditQuery {
+  userId?: string;
+  entityId?: string;
+  action?: AuditAction;
+  limit: number;
+  offset: number;
+}
+
+/** A page of audit events plus the total count matching the filter. */
+export interface AuditPageResult {
+  events: AuditEvent[];
+  total: number;
+}
+
 export interface DocumentRepository {
   /**
    * Readiness probe: verifies the underlying store is reachable. Returns true
@@ -280,6 +303,13 @@ export interface DocumentRepository {
 
   /** Read audit documents for a single entity id, chronological (oldest first). */
   listAudit(entityId: string): Promise<AuditEvent[]>;
+
+  /**
+   * Query the persisted audit history with optional filters, newest-first, paged
+   * (Phase 8 repair). Backs the read-only admin/auditor audit endpoint. Returns
+   * the page plus the total count so the client can paginate.
+   */
+  queryAudit(query: AuditQuery): Promise<AuditPageResult>;
 
   /**
    * Read the COMPLETE audit trail for an update aggregate, newest first. Every

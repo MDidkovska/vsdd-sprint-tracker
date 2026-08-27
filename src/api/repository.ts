@@ -31,11 +31,23 @@ export type Role =
   | 'ADMIN'
   | 'AUDITOR';
 
+/** Local-account lifecycle status (Phase 8, design.md §5a). */
+export type AccountStatus = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'SUSPENDED';
+
 export interface CurrentUser {
   subject: string;
+  /** Account email (also the login identifier). */
+  email: string;
   displayName: string;
   initials: string;
   roleLabel: string;
+  /** Account lifecycle status; only ACTIVE users may reach programme data. */
+  status: AccountStatus;
+  /**
+   * The single programme this principal is assigned to (null until assigned).
+   * A LEADERSHIP/ADMIN/AUDITOR role applies only to this programme (Phase 8).
+   */
+  programmeId: string | null;
   roles: Role[];
   /** Teams the user may edit/submit. */
   assignedTeamIds: string[];

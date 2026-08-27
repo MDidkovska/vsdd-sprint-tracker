@@ -13,7 +13,7 @@ import type { AuthContext } from '../auth/mockAuth.js';
 import type { AuditEvent } from '../domain/documents.js';
 import type { CurrentUser } from '../domain/identity.js';
 import type { ReportingSummary } from '../domain/leadership.js';
-import { ApiError } from '../http/errorEnvelope.js';
+import type { ApiError } from '../http/errorEnvelope.js';
 import { ExportService, type ExportAuditPort } from './exportService.js';
 import type { SummaryApi } from './summaryService.js';
 
@@ -31,9 +31,12 @@ function fakeAudit(): ExportAuditPort & { events: AuditEvent[] } {
 
 const BASE_USER: CurrentUser = {
   subject: 'user-md',
+  email: 'maryna@example.com',
   displayName: 'Maryna D.',
   initials: 'MD',
   roleLabel: 'Test Lead',
+  status: 'ACTIVE',
+  programmeId: 'vsdd',
   roles: ['TEAM_LEAD', 'LEADERSHIP'],
   assignedTeamIds: ['mmm-a'],
   canViewAll: true,
@@ -117,16 +120,19 @@ describe('ExportService authorisation', () => {
     expect(audit.events).toHaveLength(0);
   });
 
-  it('refuses a leadership caller who cannot view the whole programme', async () => {
+  it('refuses a leadership caller assigned to a DIFFERENT programme (cross-programme)', async () => {
     const getReportingSummary = vi.fn(async () => SUMMARY);
     const audit = fakeAudit();
     const service = new ExportService(
       { getReportingSummary } as SummaryApi,
-      authFor({ roles: ['LEADERSHIP'], canViewAll: false }),
+      authFor({ roles: ['LEADERSHIP'], programmeId: 'other-programme' }),
       audit,
     );
 
-    await expect(service.createExport('vsdd', validRequest)).rejects.toBeInstanceOf(ApiError);
+    // Leadership of another programme must not export "vsdd".
+    await expect(service.createExport('vsdd', validRequest)).rejects.toMatchObject({
+      code: 'PERMISSION_DENIED',
+    });
     expect(getReportingSummary).not.toHaveBeenCalled();
     expect(audit.events).toHaveLength(0);
   });

@@ -27,6 +27,7 @@ import type {
   Stream,
   Team,
 } from '../domain/hierarchy.js';
+import { assertProgrammeMember } from '../auth/authorization.js';
 import { ApiError } from '../http/errorEnvelope.js';
 
 /**
@@ -86,6 +87,8 @@ export class HierarchyService implements HierarchyApi {
   }
 
   async getHierarchy(programmeId: string): Promise<HierarchyTree> {
+    // Programme-scoped: only an ACTIVE member of THIS programme may read it.
+    assertProgrammeMember(this.auth.getCurrentUser(), programmeId);
     const programme = await this.assertProgramme(programmeId);
 
     const [streams, teams] = await Promise.all([
@@ -109,6 +112,7 @@ export class HierarchyService implements HierarchyApi {
   }
 
   async getSprints(programmeId: string, status?: SprintStatus): Promise<Sprint[]> {
+    assertProgrammeMember(this.auth.getCurrentUser(), programmeId);
     await this.assertProgramme(programmeId);
     const sprints = await this.repository.listSprints(programmeId);
     const filtered = status ? sprints.filter((s) => s.status === status) : sprints;

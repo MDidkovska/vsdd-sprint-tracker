@@ -15,6 +15,10 @@
  * (vendor-neutral boundary).
  */
 import Fastify, { type FastifyInstance } from 'fastify';
+import type { RequestAuthenticator } from './auth/authenticator.js';
+import { authorizeRoute, classifyRoute } from './auth/httpAuth.js';
+import { runWithPrincipal } from './auth/requestContext.js';
+import { readSessionToken } from './auth/session.js';
 import {
   ApiError,
   DraftRevisionConflictError,
@@ -22,6 +26,9 @@ import {
   toErrorEnvelope,
   type ApiErrorCode,
 } from './http/errorEnvelope.js';
+import { registerAdminRoutes } from './routes/adminRoutes.js';
+import { registerAuditRoutes } from './routes/auditRoutes.js';
+import { registerAuthRoutes, type AuthRoutesConfig } from './routes/authRoutes.js';
 import { registerDecisionRoutes } from './routes/decisionRoutes.js';
 import { registerDraftRoutes } from './routes/draftRoutes.js';
 import { registerExportRoutes } from './routes/exportRoutes.js';
@@ -30,6 +37,9 @@ import { registerReopenRoutes } from './routes/reopenRoutes.js';
 import { registerSubmitRoutes } from './routes/submitRoutes.js';
 import { registerSummaryRoutes } from './routes/summaryRoutes.js';
 import { registerVersionRoutes } from './routes/versionRoutes.js';
+import type { AdminApi } from './services/adminService.js';
+import type { AuditApi } from './services/auditService.js';
+import type { AuthApi } from './services/authService.js';
 import type { DecisionApi } from './services/decisionService.js';
 import type { DraftApi } from './services/draftService.js';
 import type { ExportApi } from './services/exportService.js';
@@ -85,6 +95,31 @@ export interface ServerDeps {
    * registers POST /programmes/:programmeId/exports.
    */
   exports?: ExportApi;
+  /**
+   * The local-account authentication API (task 8.1). Optional; registers
+   * POST /auth/register, /auth/login and /auth/logout.
+   */
+  auth?: AuthApi;
+  /**
+   * The admin approval/assignment API (task 8.2). Optional; registers the
+   * /admin/users endpoints.
+   */
+  admin?: AdminApi;
+  /**
+   * The read-only audit-history API (Phase 8 repair). Optional; registers
+   * GET /audit (Admin/Auditor).
+   */
+  auditQuery?: AuditApi;
+  /**
+   * The request authenticator (task 8.1/8.4). When provided, a global
+   * authentication hook resolves the session cookie into a request-scoped
+   * principal and enforces default-deny access (401 unauthenticated, 403
+   * unauthorised). When absent (infrastructure/endpoint unit tests) no hook is
+   * registered and services use whatever AuthContext they were built with.
+   */
+  authenticator?: RequestAuthenticator;
+  /** Session cookie settings used by the auth routes. */
+  authConfig?: AuthRoutesConfig;
 }
 
 export interface BuildServerOptions {
@@ -136,6 +171,52 @@ export function buildServer(
         : 'Something needs attention on the server. Please try again shortly.';
     return toErrorEnvelope(code, message, correlationId);
   });
+
+  // Authentication + edge authorisation hook (task 8.1/8.4). Registered only
+  // when an authenticator is wired. It resolves the session cookie into a
+  // request-scoped principal and applies default-deny access: unauthenticated
+  // requests on protected routes are 401; non-ACTIVE accounts reaching
+  // programme data are 403; admin/leadership route gates are applied here while
+  // fine-grained team/role scoping stays inside the services.
+  if (deps.authenticator) {
+    const authenticator = deps.authenticator;
+    // Callback-style hook: we authenticate asynchronously, then continue the
+    // rest of the request lifecycle INSIDE `runWithPrincipal(...)` so the
+    // request-scoped principal reliably propagates from this hook into the
+    // route handler (AsyncLocalStorage.run, not enterWith). Auth/authorisation
+    // failures reject and are routed to the shared error handler via done(err).
+    app.addHook('onRequest', (request, _reply, done) => {
+      const routeClass = classifyRoute(request.method, request.url);
+      if (routeClass === 'public') {
+        done();
+        return;
+      }
+
+      const token = readSessionToken(request.headers.cookie);
+      authenticator
+        .authenticate(token)
+        .then((principal) => {
+          if (!principal) {
+            throw new ApiError(
+              'SESSION_EXPIRED',
+              'Your session has expired. Please sign in again.',
+            );
+          }
+          if (routeClass === 'authed-active' && principal.status !== 'ACTIVE') {
+            throw new ApiError(
+              'PERMISSION_DENIED',
+              'Your account is not active yet. Access is not permitted.',
+            );
+          }
+          if (routeClass === 'authed-active') {
+            authorizeRoute(principal, request.method, request.url);
+          }
+          // Continue the lifecycle within the principal's async context.
+          runWithPrincipal(principal, done);
+        })
+        .catch((error: unknown) => done(error as Error));
+    });
+  }
 
   // Liveness: the process is running. Never depends on the database.
   app.get('/health', async () => {
@@ -198,6 +279,25 @@ export function buildServer(
   // Structured export endpoint (task 7.10), registered only when wired.
   if (deps.exports) {
     registerExportRoutes(app, deps.exports);
+  }
+
+  // Local-account authentication endpoints (task 8.1), registered only when wired.
+  if (deps.auth) {
+    registerAuthRoutes(
+      app,
+      deps.auth,
+      deps.authConfig ?? { secureCookies: true, sessionTtlSeconds: 12 * 3600 },
+    );
+  }
+
+  // Admin approval/assignment endpoints (task 8.2), registered only when wired.
+  if (deps.admin) {
+    registerAdminRoutes(app, deps.admin);
+  }
+
+  // Read-only audit-history endpoint (Phase 8 repair), registered when wired.
+  if (deps.auditQuery) {
+    registerAuditRoutes(app, deps.auditQuery);
   }
 
   return app;

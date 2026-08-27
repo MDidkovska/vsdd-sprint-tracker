@@ -10,6 +10,7 @@
 export type RepositoryErrorCode =
   | 'DRAFT_REVISION_CONFLICT'
   | 'IMMUTABLE_VIOLATION'
+  | 'DUPLICATE_KEY'
   | 'NOT_FOUND'
   | 'SAVE_FAILED';
 
@@ -50,5 +51,17 @@ export class ImmutableViolationError extends RepositoryError {
   constructor(message = 'This document is immutable and cannot be modified.') {
     super('IMMUTABLE_VIOLATION', message);
     this.name = 'ImmutableViolationError';
+  }
+}
+
+/**
+ * Thrown when a unique-keyed insert collides with an existing document (e.g. a
+ * duplicate user email under a race). Vendor-neutral: the service layer maps it
+ * to the appropriate domain error (e.g. EMAIL_TAKEN).
+ */
+export class DuplicateKeyError extends RepositoryError {
+  constructor(message = 'A record with this key already exists.') {
+    super('DUPLICATE_KEY', message);
+    this.name = 'DuplicateKeyError';
   }
 }

@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "bootstrap-admin": "npm run bootstrap-admin --workspace server",
     "validate:openapi": "redocly lint openapi/vsdd-sprint-tracker.openapi.yaml",
     "verify:frontend": "npm run lint && npm run typecheck && npm run test && npm run validate:openapi && npm run build",
     "verify": "npm run verify:frontend && npm run verify --workspace server"

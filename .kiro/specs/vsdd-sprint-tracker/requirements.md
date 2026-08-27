@@ -21,7 +21,11 @@ The product must preserve the business meaning behind test metrics. A green stat
 
 - Add authentication, role-based access, shared persistence, concurrency handling, audit history, notifications and governed administration.
 - Replace the local adapter without changing the UI domain model.
-- Integrate with enterprise identity and hosting standards selected by PTSB/EPAM.
+- For the PoC, authentication is **local accounts** (email + password with Admin
+  approval, R1). Enterprise identity (OIDC / Entra ID / Auth0 / Okta / Keycloak)
+  and the hosting standard selected by PTSB/EPAM remain future decisions
+  (task 0.2); local authentication sits behind small interfaces so it can be
+  replaced without rewriting business services.
 
 ## 3. Users and permissions
 
@@ -55,12 +59,95 @@ Hierarchy must be configurable; these values are seed data, not hard-coded produ
 
 ## 5. Functional requirements
 
-### R1 — Authentication and authorisation
+### R1 — Authentication and authorisation (local accounts)
 
-1. WHEN a user opens the application, THE SYSTEM SHALL authenticate the user through the configured OIDC identity provider.
-2. WHEN authentication succeeds, THE SYSTEM SHALL load programme, stream and team permissions from server-side role assignments.
-3. IF a user requests a team update they are not authorised to edit, THE SYSTEM SHALL return read-only content or a clear access-denied state without exposing hidden programme data.
-4. THE SYSTEM SHALL enforce permissions in the API; hiding a control in the UI is not sufficient authorisation.
+> **Identity approach (decided for the PoC).** The application uses **local
+> account** authentication: users register directly with an email and password,
+> and an Admin approves and assigns them. Enterprise identity (OIDC / Entra ID /
+> Auth0 / Okta / Keycloak) is **not** implemented and remains a future
+> production decision (task 0.2). Authentication and authorisation sit behind
+> small server-side interfaces so a future OIDC provider can replace local
+> authentication without rewriting the business services.
+
+1. THE SYSTEM SHALL let a person self-register with a display name, email,
+   password and an optional free-text requested team. A new registration is
+   stored with status `PENDING`.
+2. THE SYSTEM SHALL hash passwords with **Argon2id** and SHALL never store or
+   log plaintext passwords, and SHALL never expose a password hash through any
+   API response.
+3. WHEN a user signs in with valid credentials, THE SYSTEM SHALL create a
+   random, opaque, server-side session stored in the database and SHALL return
+   only the session identifier in an `HttpOnly`, `SameSite` cookie. Secure
+   cookies SHALL be enabled outside local development. Authentication tokens
+   SHALL NOT be stored in `localStorage`.
+4. THE SYSTEM SHALL load programme, stream and team permissions from server-side
+   role assignments and SHALL revalidate account status and assignments on every
+   authenticated request. A `PENDING`, `REJECTED` or `SUSPENDED` account SHALL
+   NOT access programme data.
+4a. Authorisation SHALL be **programme-scoped**: the authenticated principal is
+    assigned to a single programme, and a Leadership, Admin or Auditor role
+    grants access ONLY to that programme — never to another programme's data.
+    Every programme-level check SHALL verify the requested programme id against
+    the principal's assignment, and a request for a programme the principal is
+    not assigned to SHALL be refused before any lookup (no enumeration). These
+    checks SHALL be enforced inside the API services, not only at the HTTP edge.
+5. WHEN an Admin approves a user and assigns a programme, stream/team and roles,
+   the account SHALL become `ACTIVE` and SHALL gain the assigned access on the
+   user's next authenticated request.
+6. THE SYSTEM SHALL apply **default-deny** authorisation and SHALL enforce every
+   permission in the API; hiding a control in the UI is not sufficient
+   authorisation.
+7. IF a user requests a team update they are not authorised to edit, THE SYSTEM
+   SHALL return read-only content or a clear access-denied state without
+   exposing hidden programme data.
+8. A user SHALL NEVER be able to assign their own roles or teams, or approve,
+   reject or suspend their own account.
+9. THE SYSTEM SHALL rate-limit registration and login attempts.
+10. THE SYSTEM SHALL record the following as security-relevant audit events:
+    registration, approval, rejection, assignment change, suspension, login
+    failure and logout. Audit events SHALL NOT contain passwords, session tokens
+    or user-authored status content.
+
+### R1a — Account lifecycle and administration
+
+1. An account SHALL be in exactly one state: `PENDING`, `ACTIVE`, `REJECTED` or
+   `SUSPENDED`.
+2. THE SYSTEM SHALL provide an Admin Console that lists users filtered by
+   status, starting with a `PENDING` approval queue.
+3. An Admin SHALL be able to approve or reject a user; assign the programme,
+   stream/team and roles; modify existing assignments; and suspend an account.
+4. Approving requires assigning at least one role; a rejected or suspended
+   account SHALL immediately lose access on its next request.
+4a. Assignments SHALL be validated server-side against real reference data: the
+    programme must exist, every team must exist, be active and belong to that
+    programme, and a Contributor/Team-Lead assignment must include at least one
+    team. Phantom or cross-programme ids SHALL be rejected (`VALIDATION_FAILED`).
+4b. Registration, approval, assignment change, rejection/suspension and the
+    first-admin bootstrap SHALL be atomic — the account/assignment/session and
+    audit writes succeed or roll back together. An interrupted workflow SHALL
+    never leave an ACTIVE user without an assignment, and the bootstrap SHALL be
+    safely retryable.
+5. THE SYSTEM SHALL provide an interactive local command to securely create the
+   first Admin account without placing the password in shell history or source
+   control. The command SHALL be idempotent.
+6. THE SYSTEM SHALL use the MongoDB collections `users`, `assignments`,
+   `sessions` and `auditEvents`. There is no separate access-request collection:
+   the Admin pending queue queries `users` by `status=PENDING`, and `auditEvents`
+   retains the approval/rejection decision history.
+
+### Local authentication and administration endpoints
+
+```http
+POST /api/v1/auth/register
+POST /api/v1/auth/login
+POST /api/v1/auth/logout
+GET  /api/v1/me
+GET  /api/v1/admin/users?status=PENDING
+POST /api/v1/admin/users/{userId}/approve
+POST /api/v1/admin/users/{userId}/reject
+PUT  /api/v1/admin/users/{userId}/assignments
+POST /api/v1/admin/users/{userId}/suspend
+```
 
 ### R2 — Reporting-cycle configuration
 
@@ -153,6 +240,15 @@ Hierarchy must be configurable; these values are seed data, not hard-coded produ
 2. Audit records SHALL include actor ID, timestamp, action, entity ID, previous version and new version.
 3. Authorised users SHALL be able to compare two update versions field by field.
 4. Audit data SHALL be append-only to application users.
+5. THE SYSTEM SHALL persist account/security events — `USER_REGISTERED`,
+   `USER_APPROVED`, `USER_REJECTED`, `ASSIGNMENT_CHANGED`, `USER_SUSPENDED`,
+   `LOGIN_FAILED`, `LOGOUT` — in the `auditEvents` collection so they remain
+   available after an application restart and from any authorised session.
+6. THE SYSTEM SHALL expose a read-only audit-history endpoint
+   (`GET /api/v1/audit`) restricted to Admin and Auditor, returning results
+   newest-first with pagination and filters for `userId`, `entityId` and
+   `action`. The response SHALL NOT contain password hashes, session tokens or
+   user-authored status content.
 
 ### R15 — Notifications
 
@@ -179,7 +275,17 @@ Hierarchy must be configurable; these values are seed data, not hard-coded produ
 
 ### Security and privacy
 
-- Use enterprise OIDC/OAuth 2.0; do not store passwords.
+- For the PoC, use **local account** authentication: hash passwords with
+  Argon2id, never store or log plaintext passwords, and never expose a password
+  hash. Enterprise OIDC/OAuth 2.0 is a future decision (task 0.2) and must be
+  swappable behind the authentication interface.
+- Use random, opaque, server-side sessions stored in the database; send only the
+  session identifier in an `HttpOnly`, `SameSite` cookie; enable secure cookies
+  outside local development; never persist auth tokens in `localStorage`.
+- Sessions SHALL carry an expiry; the store SHALL clean up expired sessions
+  (a database TTL index), and an expired session SHALL be rejected immediately on
+  the next request even before TTL cleanup runs.
+- Rate-limit registration and login; apply default-deny authorisation.
 - Enforce least privilege and server-side tenant/programme scoping.
 - Encrypt data in transit and at rest using approved platform controls.
 - Do not log free-text update content, tokens or personal data in application logs.

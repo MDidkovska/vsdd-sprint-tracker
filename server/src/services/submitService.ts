@@ -39,6 +39,7 @@ import { validateSubmission } from '../domain/validation.js';
 import { ApiError, DraftRevisionConflictError } from '../http/errorEnvelope.js';
 import type { SubmitDraftInput, SubmitOutcome } from '../repository/documentRepository.js';
 import { buildPayload, type DraftUpdateRequest } from './draftService.js';
+import { assertCanSubmitTeam } from '../auth/authorization.js';
 
 /**
  * The narrow slice of the repository the submit flow needs. Declaring it here
@@ -88,9 +89,13 @@ export class SubmitService implements SubmitApi {
     checkpointId: string,
     request: DraftUpdateRequest,
   ): Promise<SubmitResult> {
+    // R1.6 / task 8.3 — only an assigned Team Lead within the team's programme
+    // may submit.
+    const user = this.auth.getCurrentUser();
     const context = await this.resolveContext(teamId, checkpointId);
+    assertCanSubmitTeam(user, teamId, context.sprint.programmeId);
     const id = docKey(teamId, context.sprint.id, checkpointId);
-    const subject = this.auth.getCurrentUser().subject;
+    const subject = user.subject;
 
     const existing = await this.repository.getDraft(id);
 

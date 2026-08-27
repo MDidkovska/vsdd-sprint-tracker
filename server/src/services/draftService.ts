@@ -38,6 +38,7 @@ import type {
 } from '../domain/hierarchy.js';
 import { ApiError, DraftRevisionConflictError } from '../http/errorEnvelope.js';
 import type { SaveDraftInput, WriteOutcome } from '../repository/documentRepository.js';
+import { assertCanEditTeam, assertCanViewTeam } from '../auth/authorization.js';
 
 /**
  * The narrow slice of the repository this service needs. Declaring it here (not
@@ -100,7 +101,11 @@ export class DraftService implements DraftApi {
   }
 
   async getUpdate(teamId: string, checkpointId: string): Promise<UpdateDocument> {
+    // Resolve the context first so we know the team's programme, then authorise
+    // against that programme + team. `resolveContext` only reveals reference
+    // data (team/checkpoint/sprint existence), never programme update content.
     const context = await this.resolveContext(teamId, checkpointId);
+    assertCanViewTeam(this.auth.getCurrentUser(), teamId, context.sprint.programmeId);
     const id = docKey(teamId, context.sprint.id, checkpointId);
 
     const existing = await this.repository.getDraft(id);
@@ -116,9 +121,13 @@ export class DraftService implements DraftApi {
     checkpointId: string,
     request: DraftUpdateRequest,
   ): Promise<UpdateDocument> {
+    // Team + programme-scoped write authorisation (R1.6, task 8.3): only an
+    // assigned Contributor or Team Lead within the team's programme may edit.
+    const user = this.auth.getCurrentUser();
     const context = await this.resolveContext(teamId, checkpointId);
+    assertCanEditTeam(user, teamId, context.sprint.programmeId);
     const id = docKey(teamId, context.sprint.id, checkpointId);
-    const subject = this.auth.getCurrentUser().subject;
+    const subject = user.subject;
 
     const existing = await this.repository.getDraft(id);
 

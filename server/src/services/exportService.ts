@@ -45,7 +45,7 @@ import type {
   ExportSnapshot,
 } from '../domain/exportSnapshot.js';
 import type { LeadershipFilters, ResolvedUpdate } from '../domain/leadership.js';
-import { ApiError } from '../http/errorEnvelope.js';
+import { assertCanExport } from '../auth/authorization.js';
 import type { ReportingSummaryQuery, SummaryApi } from './summaryService.js';
 
 /** Public API consumed by the HTTP route. */
@@ -88,14 +88,9 @@ export class ExportService implements ExportApi {
     // comparing PERMISSION_DENIED vs NOT_FOUND. Export follows the same
     // programme permission as the UI: Programme Leadership with whole-programme
     // visibility (mirrors the frontend `canViewAll` leadership gate).
+    // Leadership OR Admin, scoped to the requested programme (R1 matrix).
     const user = this.auth.getCurrentUser();
-    const canExport = user.roles.includes('LEADERSHIP') && user.canViewAll;
-    if (!canExport) {
-      throw new ApiError(
-        'PERMISSION_DENIED',
-        'You do not have permission to export this programme.',
-      );
-    }
+    assertCanExport(user, programmeId);
 
     const filters: LeadershipFilters = request.filters;
 

@@ -152,9 +152,24 @@ export type AuditAction =
   | 'SUBMITTED'
   | 'REOPENED'
   | 'DECISION_RECORDED'
-  | 'EXPORT_CREATED';
+  | 'EXPORT_CREATED'
+  // --- local-account / auth actions (Phase 8, design.md §5a) ---
+  | 'USER_REGISTERED'
+  | 'USER_APPROVED'
+  | 'USER_REJECTED'
+  | 'ASSIGNMENT_CHANGED'
+  | 'USER_SUSPENDED'
+  | 'LOGIN_FAILED'
+  | 'LOGOUT'
+  | 'ADMIN_BOOTSTRAPPED';
 
-export type AuditEntityType = 'UPDATE' | 'VERSION' | 'DECISION' | 'EXPORT';
+export type AuditEntityType =
+  | 'UPDATE'
+  | 'VERSION'
+  | 'DECISION'
+  | 'EXPORT'
+  | 'USER'
+  | 'SESSION';
 
 /**
  * Append-only audit document (`auditEvents` collection).

@@ -115,7 +115,7 @@ beforeAll(async () => {
 
   const drafts = new DraftService(repository, mockAuthContext);
   const submits = new SubmitService(repository, mockAuthContext);
-  const summaries = new SummaryService(repository);
+  const summaries = new SummaryService(repository, mockAuthContext);
   app = buildServer(
     { checkReadiness: () => repository.ping(), drafts, submits, summaries },
     { logLevel: 'silent' },
@@ -233,13 +233,15 @@ describe('GET /api/v1/programmes/:programmeId/reporting-summary', () => {
     expect(body.filters).toEqual({ streamId: 'GRMB', rag: 'ALL', state: 'SUBMITTED' });
   });
 
-  it('returns 404 for an unknown programme', async () => {
+  it('returns 403 for a programme the caller is not assigned to (anti-enumeration)', async () => {
+    // Programme scoping refuses before any programme lookup, so an unknown or
+    // unassigned programme yields an identical PERMISSION_DENIED (no leak).
     const response = await app.inject({
       method: 'GET',
       url: '/api/v1/programmes/missing/reporting-summary?sprintId=S14&checkpointId=C14-1',
     });
-    expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } });
   });
 
   it('returns 404 when the checkpoint does not belong to the sprint', async () => {

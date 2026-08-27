@@ -21,7 +21,20 @@ export type ApiErrorCode =
   | 'INVALID_STATE'
   | 'NOT_FOUND'
   | 'SAVE_FAILED'
-  | 'VALIDATION_FAILED';
+  | 'VALIDATION_FAILED'
+  // --- local-account / auth codes (Phase 8, design.md §5a) ---
+  /** No valid session on a request that requires authentication (401). */
+  | 'UNAUTHENTICATED'
+  /** The session was missing, unknown or expired (401). */
+  | 'SESSION_EXPIRED'
+  /** Login credentials did not match (401). Deliberately generic. */
+  | 'AUTH_FAILED'
+  /** The account exists but is not ACTIVE (rejected/suspended) (403). */
+  | 'ACCOUNT_INACTIVE'
+  /** Registration/login rate limit exceeded (429). */
+  | 'RATE_LIMITED'
+  /** The email is already registered (409). */
+  | 'EMAIL_TAKEN';
 
 export interface FieldError {
   path: string;
@@ -40,12 +53,18 @@ export interface ErrorEnvelope {
 /** Map each stable error code to its HTTP status. */
 const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   VALIDATION_FAILED: 400,
+  UNAUTHENTICATED: 401,
+  SESSION_EXPIRED: 401,
+  AUTH_FAILED: 401,
   PERMISSION_DENIED: 403,
+  ACCOUNT_INACTIVE: 403,
   NOT_FOUND: 404,
   ALREADY_SUBMITTED: 409,
   INVALID_STATE: 409,
   DRAFT_REVISION_CONFLICT: 409,
   WINDOW_CLOSED: 409,
+  EMAIL_TAKEN: 409,
+  RATE_LIMITED: 429,
   SAVE_FAILED: 500,
 };
 

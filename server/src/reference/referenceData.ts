@@ -81,9 +81,12 @@ export const ASSIGNED_TEAM_IDS: string[] = TEAMS.map((t) => t.id).filter(
  */
 export const MOCK_CURRENT_USER: CurrentUser = {
   subject: 'user-md',
+  email: 'maryna@example.com',
   displayName: 'Maryna D.',
   initials: 'MD',
   roleLabel: 'Test Lead',
+  status: 'ACTIVE',
+  programmeId: PROGRAMME_ID,
   roles: ['TEAM_LEAD', 'LEADERSHIP'],
   assignedTeamIds: ASSIGNED_TEAM_IDS,
   canViewAll: true,

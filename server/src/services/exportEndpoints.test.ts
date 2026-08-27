@@ -149,7 +149,7 @@ beforeAll(async () => {
 
   const drafts = new DraftService(repository, mockAuthContext);
   const submits = new SubmitService(repository, mockAuthContext);
-  const summaries = new SummaryService(repository);
+  const summaries = new SummaryService(repository, mockAuthContext);
   const exports = new ExportService(summaries, mockAuthContext, repository);
   app = buildServer(
     { checkReadiness: () => repository.ping(), drafts, submits, summaries, exports },
@@ -313,14 +313,16 @@ describe('POST /api/v1/programmes/:programmeId/exports', () => {
     expect(missingProgramme.json().error.code).toBe('PERMISSION_DENIED');
   });
 
-  it('returns 404 for an unknown programme when the caller IS authorised', async () => {
+  it('returns 403 for a programme the caller is not assigned to (anti-enumeration)', async () => {
+    // Export is scoped to the caller's programme: leadership of "vsdd" cannot
+    // export another programme, and cannot tell whether it exists (no leak).
     const response = await app.inject({
       method: 'POST',
       url: '/api/v1/programmes/missing/exports',
       payload: exportBody(),
     });
-    expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } });
   });
 
   it('returns 404 when the checkpoint does not belong to the sprint', async () => {

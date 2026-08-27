@@ -13,6 +13,15 @@ export default defineConfig({
   },
   server: {
     port: 4173,
+    // Local dev proxy: forward the API to the Fastify backend so the browser
+    // sends the session cookie same-origin. Override the target with
+    // VITE_API_BASE_URL when the backend runs elsewhere.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port: 4173,

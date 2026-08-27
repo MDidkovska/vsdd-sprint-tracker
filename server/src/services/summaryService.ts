@@ -47,6 +47,8 @@ import type {
   StateFilter,
 } from '../domain/leadership.js';
 import { applyFilters, computeSummary } from '../domain/leadershipFiltering.js';
+import type { AuthContext } from '../auth/mockAuth.js';
+import { assertCanViewProgramme } from '../auth/authorization.js';
 import { ApiError } from '../http/errorEnvelope.js';
 import type { UpdateQuery } from '../repository/documentRepository.js';
 
@@ -122,15 +124,19 @@ export function parseStateFilter(raw: string | undefined): StateFilter {
 
 export class SummaryService implements SummaryApi {
   private readonly repository: SummaryReadPort;
+  private readonly auth: AuthContext;
 
-  constructor(repository: SummaryReadPort) {
+  constructor(repository: SummaryReadPort, auth: AuthContext) {
     this.repository = repository;
+    this.auth = auth;
   }
 
   async getReportingSummary(
     programmeId: string,
     query: ReportingSummaryQuery,
   ): Promise<ReportingSummary> {
+    // Leadership/Admin/Auditor, scoped to THIS programme (R1 matrix).
+    assertCanViewProgramme(this.auth.getCurrentUser(), programmeId);
     const programme = await this.assertProgramme(programmeId);
 
     // sprintId and checkpointId are required (OpenAPI getReportingSummary). A

@@ -7,9 +7,12 @@ import { PROGRAMME_ID } from '../config';
 function makeUser(overrides: Partial<CurrentUser>): CurrentUser {
   return {
     subject: 'u',
+    email: 'u@example.com',
     displayName: 'U',
     initials: 'U',
     roleLabel: 'role',
+    status: 'ACTIVE',
+    programmeId: PROGRAMME_ID,
     roles: [],
     assignedTeamIds: [],
     canViewAll: false,

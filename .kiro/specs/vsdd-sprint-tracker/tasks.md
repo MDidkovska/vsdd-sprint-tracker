@@ -98,14 +98,42 @@ Tasks are ordered. Do not begin production persistence before the approved UI be
 - [x] 7.10 Implement the structured export with programme-level authorisation. For the local PoC this is a SYNCHRONOUS structured JSON snapshot returned in the response body (the agreed export format, task 0.2 / R16.1); it reuses the leadership filtered projection so the export matches the visible population, enforces the programme-permission gate before any programme lookup (anti-enumeration, design.md §13), and appends an append-only `EXPORT_CREATED` security-audit event on success (R15). Asynchronous export jobs and download-artifact storage are explicitly deferred to a future production decision — they are not required by R16 and are out of scope for the PoC.
 - [x] 7.11 Add API integration tests including conflicts and rollback.
 
-## Phase 8 — Identity and role-based access
+## Phase 8 — Identity and role-based access (local accounts)
 
-- [ ] 8.1 Integrate the agreed OIDC provider without storing application passwords.
-- [ ] 8.2 Map authenticated subjects/groups to programme role assignments.
-- [ ] 8.3 Enforce Team Contributor and Team Lead scoping in the API.
-- [ ] 8.4 Enforce Programme Leadership, Admin and Auditor permissions.
-- [ ] 8.5 Add access-denied and session-expired UX states.
-- [ ] 8.6 Add automated negative-authorisation tests for every write and export route.
+> **Identity approach (decided for the PoC).** Phase 8 implements **local
+> account** authentication — self-registration with email + password (Argon2id),
+> Admin approval and assignment, and opaque server-side sessions. OIDC / Entra
+> ID / Auth0 / Okta / Keycloak are **not** implemented; production enterprise
+> identity remains a future decision (task 0.2). Authentication and
+> authorisation sit behind small `Authenticator` / `AuthorizationPolicy`
+> interfaces so OIDC can replace local authentication later without rewriting the
+> business services. Uses the `users`, `assignments`, `sessions` and
+> `auditEvents` collections (no separate access-request collection).
+
+- [x] 8.1 Implement local registration, login, logout and secure server sessions. (Argon2id password hashing; random opaque session stored by token hash; HttpOnly/SameSite cookie, Secure outside local dev; rate-limited register/login; `/me` backed by the session; registration/logout/login-failure audit events.)
+- [x] 8.2 Implement Admin approval and programme/team/role assignment. (Pending queue via `users?status=PENDING`; approve/reject/assign/modify/suspend; `PENDING` on registration → `ACTIVE` on approval; users can never assign or decide on their own account; approval/rejection/assignment/suspension audit events.)
+- [x] 8.3 Enforce Team Contributor and Team Lead scoping in the API. (Contributor/Lead may only act on assigned teams; only Team Lead may submit/reopen; enforced server-side, not by hiding UI.)
+- [x] 8.4 Enforce Programme Leadership, Admin and Auditor permissions. (Default-deny; Leadership/Admin/Auditor read scopes; decisions/export gated to Leadership/Admin; admin endpoints gated to Admin; account status re-validated every request.)
+- [x] 8.5 Add Registration, Pending Approval, Access Denied and Session Expired UX. (Plus Login and the Admin Console screens: pending users, active users, role/team assignments, suspended users and relevant audit history.)
+- [x] 8.6 Add automated negative authentication and authorisation tests for every protected endpoint. (401 unauthenticated / 403 unauthorised for every write, reopen, decision, admin and export endpoint; pending/rejected/suspended denial; privilege-escalation attempts; password/token absence from responses, logs and audit events; bootstrap-admin idempotency.)
+
+### First Admin bootstrap
+
+- [x] 8.7 Provide an interactive `npm run bootstrap-admin` command that securely creates the first Admin account without putting the password in shell history or source control, and is idempotent.
+
+### Phase 8 repairs
+
+- [x] 8.8 Make the frontend use the REAL HTTP auth/admin API by default (session cookie, `credentials: 'include'`, `VITE_API_BASE_URL` / Vite `/api` proxy); mock auth only behind `VITE_AUTH_MODE=mock`; no silent mock fallback — an unreachable backend shows a connection-error state. Add a Mongo-backed integration test proving register → PENDING → approval+assignment → logout/login → ACTIVE with the account, assignment and session persisted through a freshly-reconnected repository.
+- [x] 8.9 Replace the session-scoped admin activity log with PERSISTED MongoDB audit history: a read-only `GET /api/v1/audit` (newest-first, paginated, filters for `userId`/`entityId`/`action`, Admin/Auditor only, no password hashes / session tokens / user-authored content). The Admin Console loads it; history survives restart and is visible from any Admin/Auditor session.
+- [x] 8.10 Implement an explicit read-only Auditor policy (may read hierarchy, reporting summaries, submitted versions/comparisons and audit history; may not edit/submit/reopen, record decisions, export, or perform any admin/assignment action) with negative tests proving Auditor cannot mutate any resource.
+- [x] 8.11 Add a MongoDB TTL index for session expiry (`expiresAt` stored as a BSON `Date`, `expireAfterSeconds: 0`), keeping ISO serialization at the domain/API boundary; expired sessions are rejected immediately even before TTL cleanup runs. Add index and expiry tests.
+
+### Phase 8 RBAC + identity-consistency repair
+
+- [x] 8.12 Programme-scoped principal: `CurrentUser.programmeId` end-to-end (backend, frontend, OpenAPI, mock/test principals), populated from the Assignment in `buildPrincipal`. A Leadership/Admin/Auditor role applies only to the assigned programme; every programme-level check verifies the requested programme id.
+- [x] 8.13 Wire the authorisation policy into the REAL services (Hierarchy, Draft, Submit, Reopen, Decision, Summary, Version, Export) — not only the HTTP hook — and remove role-only checks that contradicted the matrix. Cross-programme / cross-team / arbitrary-id reads are refused; negative and positive (Admin decision/export, Auditor read-only) tests added.
+- [x] 8.14 Validate admin assignments server-side against real reference data (programme + active teams belonging to it; Contributor/Team-Lead need >=1 team), and make registration/approval/assignment/rejection/suspension/bootstrap atomic with rollback tests (+ `ADMIN_BOOTSTRAPPED` audit).
+- [x] 8.15 Role-aware frontend navigation (Team Update / Leadership View / Admin Console / Audit history gated by role; unauthorised views never render) with a shared read-only Audit History component used by both Admin and Auditor — the Auditor view never calls the admin user endpoints.
 
 ## Phase 9 — Notifications, history and administration
 

@@ -1,0 +1,92 @@
+.screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6, 24px);
+  background: var(--surface-subtle, #faf9f7);
+}
+
+.card {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--divider, #dedad6);
+  border-radius: 12px;
+  padding: var(--space-8, 32px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  margin-bottom: var(--space-2, 8px);
+}
+
+.logo {
+  height: 28px;
+  width: auto;
+}
+
+.title {
+  font-size: 1.5rem;
+  margin: 0;
+  color: var(--text, #2e2c2b);
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--text-muted, #6b6763);
+  font-size: 0.9rem;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  margin-top: var(--space-2, 8px);
+}
+
+.switcher {
+  font-size: 0.9rem;
+  color: var(--text-muted, #6b6763);
+}
+
+.linkButton {
+  background: none;
+  border: none;
+  color: var(--brand, #23747b);
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.error {
+  color: var(--red, #c84038);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.notice {
+  border-left: 3px solid var(--brand, #23747b);
+  background: var(--aqua, #c7eef0);
+  color: var(--text, #2e2c2b);
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.stateIcon {
+  font-size: 2rem;
+  line-height: 1;
+}

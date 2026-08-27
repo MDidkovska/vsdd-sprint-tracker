@@ -37,6 +37,7 @@ import {
   type UpdateVersion,
 } from '../domain/documents.js';
 import { ApiError } from '../http/errorEnvelope.js';
+import { assertCanRecordDecision, assertCanViewTeam } from '../auth/authorization.js';
 import type { RecordDecisionInput } from '../repository/documentRepository.js';
 
 /**
@@ -95,15 +96,10 @@ export class DecisionService implements DecisionApi {
       throw ApiError.notFound(`Submitted version "${versionId}" was not found.`);
     }
 
-    // R1 role matrix — the authorised-role gate is enforced server-side. Only
-    // Programme Leadership may record a decision (mirrors the frontend mock).
+    // R1 role matrix — Leadership OR Admin may record a decision, scoped to the
+    // referenced version's programme (enforced via the shared policy).
     const user = this.auth.getCurrentUser();
-    if (!user.roles.includes('LEADERSHIP')) {
-      throw new ApiError(
-        'PERMISSION_DENIED',
-        'Only Programme Leadership can record a decision.',
-      );
-    }
+    assertCanRecordDecision(user, version.programmeId);
 
     const now = new Date().toISOString();
 
@@ -149,6 +145,9 @@ export class DecisionService implements DecisionApi {
     if (!version) {
       throw ApiError.notFound(`Submitted version "${versionId}" was not found.`);
     }
+    // Read scope mirrors the referenced version/team (R1 matrix): assigned team
+    // within the programme, or a leadership/admin/auditor view of it.
+    assertCanViewTeam(this.auth.getCurrentUser(), version.teamId, version.programmeId);
     return this.repository.listDecisions(versionId);
   }
 }

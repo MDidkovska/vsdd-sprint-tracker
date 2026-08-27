@@ -10,9 +10,12 @@ import { RepositoryError, type CurrentUser } from '../../api/repository';
 function makeUser(overrides: Partial<CurrentUser>): CurrentUser {
   return {
     subject: 'u',
+    email: 'u@example.com',
     displayName: 'U',
     initials: 'U',
     roleLabel: 'role',
+    status: 'ACTIVE',
+    programmeId: 'vsdd',
     roles: [],
     assignedTeamIds: [],
     canViewAll: false,

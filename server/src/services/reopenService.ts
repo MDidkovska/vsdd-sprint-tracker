@@ -44,6 +44,7 @@ import {
   type UpdateVersion,
 } from '../domain/documents.js';
 import { ApiError, DraftRevisionConflictError } from '../http/errorEnvelope.js';
+import { assertCanSubmitTeam } from '../auth/authorization.js';
 import type { ReopenOutcome, ReopenUpdateInput } from '../repository/documentRepository.js';
 
 /**
@@ -95,17 +96,10 @@ export class ReopenService implements ReopenApi {
       throw ApiError.notFound(`Submitted version "${versionId}" was not found.`);
     }
 
-    // R1.4 — the authorised-role gate is enforced server-side. Only an assigned
-    // Team Lead may reopen a submitted update (requirements.md R1 role matrix).
+    // R1.4 — the authorised-role gate is enforced server-side via the shared
+    // policy: an assigned Team Lead within the version's programme (R1 matrix).
     const user = this.auth.getCurrentUser();
-    const isAssigned = user.assignedTeamIds.includes(version.teamId);
-    const isTeamLead = user.roles.includes('TEAM_LEAD');
-    if (!isAssigned || !isTeamLead) {
-      throw new ApiError(
-        'PERMISSION_DENIED',
-        'Only an assigned Team Lead can reopen a submitted update.',
-      );
-    }
+    assertCanSubmitTeam(user, version.teamId, version.programmeId);
 
     const id = docKey(version.teamId, version.sprintId, version.checkpointId);
     const existing = await this.repository.getDraft(id);

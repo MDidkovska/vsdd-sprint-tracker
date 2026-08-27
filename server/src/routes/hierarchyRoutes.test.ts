@@ -15,9 +15,12 @@ import { buildServer } from '../server.js';
 
 const USER: CurrentUser = {
   subject: 'user-md',
+  email: 'maryna@example.com',
   displayName: 'Maryna D.',
   initials: 'MD',
   roleLabel: 'Test Lead',
+  status: 'ACTIVE',
+  programmeId: 'vsdd',
   roles: ['TEAM_LEAD', 'LEADERSHIP'],
   assignedTeamIds: ['mmm-a'],
   canViewAll: true,

@@ -28,14 +28,22 @@ servers:
     description: Version 1 API base path
 
 # Every request is authenticated and authorised server-side against
-# programme/team assignments (design.md §13). Applied globally; individual
-# operations may narrow scope in later phases.
+# programme/team assignments (design.md §13, §5a). The PoC uses a local-account
+# session cookie; auth registration/login are the only public operations
+# (security: []). Enterprise OIDC (a bearer token) is a future decision and
+# would replace the session cookie behind the same authorisation model.
 security:
-  - bearerAuth: []
+  - cookieAuth: []
 
 tags:
+  - name: auth
+    description: Local-account registration, login and logout (Phase 8)
   - name: identity
     description: Authenticated user identity and permissions
+  - name: admin
+    description: Admin approval and programme/team/role assignment (Phase 8)
+  - name: audit
+    description: Read-only persisted audit history (Admin/Auditor, Phase 8)
   - name: hierarchy
     description: Programme hierarchy and reporting cycle (read)
   - name: updates
@@ -44,6 +52,291 @@ tags:
     description: Leadership View projection, decisions and export
 
 paths:
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Self-register a new local account (stored PENDING)
+      description: >-
+        Public endpoint. Creates a PENDING account (Argon2id password hash) and
+        records a registration audit event. Rate-limited (R1.9).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: The created PENDING user (never includes a password hash).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/EmailTaken'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Sign in with email + password
+      description: >-
+        Public endpoint. On success sets an HttpOnly, SameSite session cookie
+        (Secure outside local dev) and returns the current principal — the
+        opaque token is ONLY in the cookie, never the body. PENDING and ACTIVE
+        accounts may sign in; REJECTED/SUSPENDED are refused (ACCOUNT_INACTIVE).
+        Rate-limited (R1.9).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated; a session cookie is set.
+          headers:
+            Set-Cookie:
+              description: The `vsdd_session` cookie (HttpOnly, SameSite, Secure outside dev).
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out and revoke the current session
+      responses:
+        '200':
+          description: The session is revoked and the cookie cleared.
+          headers:
+            Set-Cookie:
+              description: Clears the `vsdd_session` cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/users:
+    get:
+      operationId: listUsers
+      tags: [admin]
+      summary: List users, optionally filtered by status (the pending queue)
+      description: >-
+        Admin only. The pending approval queue is `?status=PENDING`. Responses
+        use the PublicUser projection and never include a password hash.
+      parameters:
+        - $ref: '#/components/parameters/StatusQuery'
+      responses:
+        '200':
+          description: The matching users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublicUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/users/{userId}/approve:
+    post:
+      operationId: approveUser
+      tags: [admin]
+      summary: Approve a pending user and assign programme/team/roles
+      description: >-
+        Admin only. Sets the account ACTIVE and writes its assignment. An admin
+        can never approve their own account (R1.8).
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignmentInput'
+      responses:
+        '200':
+          description: The approved (ACTIVE) user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /admin/users/{userId}/reject:
+    post:
+      operationId: rejectUser
+      tags: [admin]
+      summary: Reject a pending user (revokes any sessions)
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: The rejected user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /admin/users/{userId}/assignments:
+    put:
+      operationId: updateAssignments
+      tags: [admin]
+      summary: Modify an active user's programme/team/role assignment
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignmentInput'
+      responses:
+        '200':
+          description: The user with its updated assignment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /admin/users/{userId}/suspend:
+    post:
+      operationId: suspendUser
+      tags: [admin]
+      summary: Suspend an active user (revokes any sessions)
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: The suspended user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /audit:
+    get:
+      operationId: listAudit
+      tags: [audit]
+      summary: Read the persisted audit history (Admin/Auditor)
+      description: >-
+        Newest-first, paginated, filterable audit trail persisted in MongoDB.
+        Read access is limited to Admin and Auditor. The response is a sanitised
+        projection: it never includes password hashes, session tokens or
+        user-authored content (e.g. reopen reasons).
+      parameters:
+        - name: userId
+          in: query
+          required: false
+          description: Filter by the stable per-user aggregate id.
+          schema:
+            type: string
+        - name: entityId
+          in: query
+          required: false
+          description: Filter by the specific entity the event is about.
+          schema:
+            type: string
+        - name: action
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AuditAction'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: A page of audit entries, newest-first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /me:
     get:
       operationId: getCurrentUser
@@ -492,14 +785,17 @@ paths:
 
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: vsdd_session
       description: >-
-        Enterprise OIDC access token. The application receives a stable subject
-        id and group/role claims (design.md §2, §13). An approved same-site
-        secure-cookie session is an equivalent accepted pattern.
+        Opaque, random, server-side session id delivered in an HttpOnly,
+        SameSite cookie (Secure outside local development). The raw token is
+        never returned in a response body and never stored in localStorage
+        (design.md §5a). Enterprise OIDC (a bearer token) is a future decision
+        (task 0.2) and would replace this scheme behind the same authorisation
+        model.
 
   parameters:
     ProgrammeId:
@@ -535,6 +831,20 @@ components:
       description: The other submitted version id to compare against (R14.3).
       schema:
         type: string
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: Local-account user id.
+      schema:
+        type: string
+    StatusQuery:
+      name: status
+      in: query
+      required: false
+      description: Filter users by account status (e.g. `PENDING`).
+      schema:
+        $ref: '#/components/schemas/AccountStatus'
 
   responses:
     Unauthorized:
@@ -616,6 +926,30 @@ components:
                 version instead.
               correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
               fieldErrors: []
+    EmailTaken:
+      description: An account with this email already exists (registration).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: EMAIL_TAKEN
+              message: An account with this email already exists.
+              correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
+              fieldErrors: []
+    TooManyRequests:
+      description: Registration/login rate limit exceeded (R1.9).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: RATE_LIMITED
+              message: Too many attempts. Please wait and try again.
+              correlationId: 7b1c0f2a-2a3e-4c9a-9e0b-2a1f3c4d5e6f
+              fieldErrors: []
 
   schemas:
     # ---------------------------------------------------------------------
@@ -667,10 +1001,24 @@ components:
       enum: [CONTRIBUTOR, TEAM_LEAD, LEADERSHIP, ADMIN, AUDITOR]
     AuditAction:
       type: string
-      enum: [DRAFT_SAVED, SUBMITTED, REOPENED, DECISION_RECORDED, EXPORT_CREATED]
+      enum:
+        - DRAFT_SAVED
+        - SUBMITTED
+        - REOPENED
+        - DECISION_RECORDED
+        - EXPORT_CREATED
+        # Local-account / auth actions (Phase 8)
+        - USER_REGISTERED
+        - USER_APPROVED
+        - USER_REJECTED
+        - ASSIGNMENT_CHANGED
+        - USER_SUSPENDED
+        - LOGIN_FAILED
+        - LOGOUT
+        - ADMIN_BOOTSTRAPPED
     AuditEntityType:
       type: string
-      enum: [UPDATE, VERSION, DECISION, EXPORT]
+      enum: [UPDATE, VERSION, DECISION, EXPORT, USER, SESSION]
 
     Count:
       type: integer
@@ -1201,27 +1549,202 @@ components:
     # ---------------------------------------------------------------------
     # Identity (src/api/repository.ts CurrentUser)
     # ---------------------------------------------------------------------
+    # ---------------------------------------------------------------------
+    # Local-account identity (Phase 8, design.md §5a; server domain/accounts.ts)
+    # ---------------------------------------------------------------------
+    AccountStatus:
+      type: string
+      description: Account lifecycle state.
+      enum: [PENDING, ACTIVE, REJECTED, SUSPENDED]
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName, email, password]
+      properties:
+        displayName:
+          type: string
+          maxLength: 200
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 10
+          maxLength: 512
+          description: Never stored or logged in plaintext; hashed with Argon2id.
+        requestedTeam:
+          type: string
+          maxLength: 400
+          description: Optional free-text team the registrant asks to join.
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          maxLength: 512
+    AssignmentInput:
+      type: object
+      description: Programme/team/role assignment applied on approve or update.
+      additionalProperties: false
+      required: [roles]
+      properties:
+        programmeId:
+          type: [string, 'null']
+        teamIds:
+          type: array
+          items:
+            type: string
+        roles:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Role'
+    PublicUser:
+      type: object
+      description: >-
+        API-facing user projection. NEVER includes a password hash
+        (requirements.md R1.2). Carries the resolved assignment so the Admin
+        Console can render a row without a second request.
+      additionalProperties: false
+      required:
+        - id
+        - email
+        - displayName
+        - status
+        - roles
+        - teamIds
+        - programmeId
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+        requestedTeam:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+        teamIds:
+          type: array
+          items:
+            type: string
+        programmeId:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ---------------------------------------------------------------------
+    # Persisted audit history (Phase 8 repair; server services/auditService.ts)
+    # ---------------------------------------------------------------------
+    AuditEntry:
+      type: object
+      description: >-
+        Sanitised audit row. Carries only stable ids, action, actor, entity/
+        aggregate ids and timestamp — never a password, session token or
+        user-authored content.
+      additionalProperties: false
+      required:
+        - id
+        - action
+        - actorSubject
+        - entityType
+        - entityId
+        - aggregateId
+        - timestamp
+        - correlationId
+      properties:
+        id:
+          type: string
+        action:
+          $ref: '#/components/schemas/AuditAction'
+        actorSubject:
+          type: string
+        entityType:
+          $ref: '#/components/schemas/AuditEntityType'
+        entityId:
+          type: string
+        aggregateId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        correlationId:
+          type: string
+    AuditPage:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEntry'
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+
     CurrentUser:
       type: object
       additionalProperties: false
       required:
         - subject
+        - email
         - displayName
         - initials
         - roleLabel
+        - status
+        - programmeId
         - roles
         - assignedTeamIds
         - canViewAll
       properties:
         subject:
           type: string
-          description: Stable OIDC subject id.
+          description: >-
+            Stable subject id. For the local-account PoC this is the user
+            account id; a future OIDC provider would supply its subject claim.
+        email:
+          type: string
+          description: Account email (also the login identifier).
         displayName:
           type: string
         initials:
           type: string
         roleLabel:
           type: string
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+        programmeId:
+          type: [string, 'null']
+          description: >-
+            The single programme this principal is assigned to (null until
+            assigned). A LEADERSHIP/ADMIN/AUDITOR role applies only to this
+            programme; every programme-level check verifies the requested
+            programme id against it.
         roles:
           type: array
           items:
@@ -1568,6 +2091,13 @@ components:
         - NOT_FOUND
         - SAVE_FAILED
         - VALIDATION_FAILED
+        # Local-account / auth codes (Phase 8, design.md §5a)
+        - UNAUTHENTICATED
+        - SESSION_EXPIRED
+        - AUTH_FAILED
+        - ACCOUNT_INACTIVE
+        - RATE_LIMITED
+        - EMAIL_TAKEN
     FieldError:
       type: object
       additionalProperties: false
