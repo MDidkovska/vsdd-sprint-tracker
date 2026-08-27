@@ -1,0 +1,19 @@
+.dot {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  flex: 0 0 auto;
+  border-radius: 999rem;
+}
+
+.green {
+  background: var(--green);
+}
+
+.amber {
+  background: var(--amber);
+}
+
+.red {
+  background: var(--red);
+}

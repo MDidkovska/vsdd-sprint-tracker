@@ -1,0 +1,93 @@
+/*
+ * VSDD Sprint Tracker — semantic design tokens.
+ * Extracted from the approved static prototype (reference/prototype/styles.css).
+ *
+ * Production CSS uses the approved OKLCH equivalents. The PTSB brand hex
+ * references are retained here so exported documents and design tokens can
+ * cite the source-of-truth brand values (design.md §10).
+ *
+ *   Brand hex reference (do not delete):
+ *     PTSB orange   #FC4C02   active navigation + primary actions only
+ *     Graphite      #2E2C2B   primary text
+ *     White         #FFFFFF   base surface
+ *     Subtle        #FAF9F7   subtle surface
+ *     Divider       #DEDAD6   dividers / lines
+ *     Aqua          #C7EEF0   hierarchy metadata / secondary emphasis
+ *     Dark aqua     #23747B   metadata ink
+ *     Green         #2F8F5B   status: positive
+ *     Amber         #E7A400   status: caution
+ *     Red           #C84038   status: negative
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Brand + accent */
+  --orange: oklch(68% 0.235 38); /* #FC4C02 */
+  --orange-deep: oklch(59% 0.22 36);
+  --orange-ink: oklch(45% 0.16 36);
+  --orange-action: oklch(52% 0.2 36);
+  --orange-action-hover: oklch(47% 0.18 36);
+  --orange-soft: oklch(96.5% 0.035 42);
+
+  /* Text */
+  --ink: oklch(29% 0.012 52); /* #2E2C2B graphite */
+  --ink-soft: oklch(41% 0.012 52);
+  --muted: oklch(52% 0.012 52);
+  /* >= 4.5:1 on white/subtle surfaces (was 67% which failed WCAG AA). */
+  --faint: oklch(48% 0.012 52);
+
+  /* Surfaces + lines */
+  --surface: oklch(100% 0 0); /* #FFFFFF */
+  --surface-subtle: oklch(98.1% 0.004 50); /* #FAF9F7 */
+  --surface-muted: oklch(96.3% 0.005 50);
+  --line: oklch(88% 0.007 52); /* #DEDAD6 */
+  --line-strong: oklch(78% 0.01 52);
+
+  /* Aqua metadata */
+  --aqua: oklch(91% 0.048 197); /* #C7EEF0 */
+  --aqua-soft: oklch(96.5% 0.02 197);
+  --aqua-ink: oklch(48% 0.083 199); /* #23747B */
+
+  /* Status semantics (never colour alone — always paired with text) */
+  --green: oklch(58% 0.133 151); /* #2F8F5B */
+  --green-ink: oklch(45% 0.105 151);
+  --green-soft: oklch(96% 0.035 151);
+  --amber: oklch(76% 0.16 82); /* #E7A400 */
+  --amber-ink: oklch(52% 0.13 72);
+  --amber-soft: oklch(97% 0.045 82);
+  --red: oklch(55% 0.185 27); /* #C84038 */
+  --red-soft: oklch(96% 0.035 27);
+
+  --focus: oklch(48% 0.13 228);
+
+  /* 4-point spacing foundation */
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+
+  /* Radius: 4–12px, no excessive rounding */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  /* Fixed product type scale: 12 / 14 / 16 / 20 / 24 / 32 */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-body: 1rem;
+  --text-subhead: 1.25rem;
+  --text-title: 1.5rem;
+  --text-page: 2rem;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --z-sticky: 20;
+  --z-toast: 50;
+}

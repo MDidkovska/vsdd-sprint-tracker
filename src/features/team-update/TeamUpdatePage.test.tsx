@@ -1,0 +1,213 @@
+import { describe, expect, it } from 'vitest';
+import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { axe } from 'jest-axe';
+import { TeamUpdatePage } from './TeamUpdatePage';
+import { renderWithProviders } from '../../test/renderApp';
+import { MockRepository } from '../../api/mockRepository';
+import { RepositoryError, type CurrentUser } from '../../api/repository';
+
+function makeUser(overrides: Partial<CurrentUser>): CurrentUser {
+  return {
+    subject: 'u',
+    displayName: 'U',
+    initials: 'U',
+    roleLabel: 'role',
+    roles: [],
+    assignedTeamIds: [],
+    canViewAll: false,
+    ...overrides,
+  };
+}
+
+async function waitForLoaded() {
+  // The default team (mmm-a) is a submitted Week 1 update.
+  await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument());
+}
+
+describe('TeamUpdatePage', () => {
+  it('shows a loading skeleton then the loaded update', async () => {
+    renderWithProviders(<TeamUpdatePage />);
+    expect(screen.getByLabelText('Loading team update')).toBeInTheDocument();
+    await waitForLoaded();
+    expect(screen.getByText(/Sprint 14 · Week 1 update/)).toBeInTheDocument();
+  });
+
+  it('renders the four goal fields and three RAG selectors', async () => {
+    renderWithProviders(<TeamUpdatePage />);
+    await waitForLoaded();
+    expect(screen.getByRole('textbox', { name: /Business goal/ })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /Technical \/ testing goal/ })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /Sprint commitment/ })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /Next week commitment/ })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Business outcome' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Test delivery' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Release confidence' })).toBeInTheDocument();
+  });
+
+  it('shows a submitted, read-only banner with a reopen action for a submitted update', async () => {
+    renderWithProviders(<TeamUpdatePage />);
+    await waitForLoaded();
+    expect(screen.getByText(/submitted and read-only/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reopen to edit/ })).toBeInTheDocument();
+    // Read-only: the submit button is disabled.
+    expect(screen.getByRole('button', { name: 'Submit update' })).toBeDisabled();
+  });
+});
+
+describe('TeamUpdatePage permission and window states', () => {
+  it('shows read-only access for an unassigned team (o24-desktop)', async () => {
+    const { getByLabelText } = renderWithProviders(<TeamUpdatePage />);
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument());
+
+    // Navigate context to O24 -> Desktop Sunset (unassigned).
+    await userEvent.selectOptions(getByLabelText('Stream'), 'O24');
+    await userEvent.selectOptions(getByLabelText('Team'), 'o24-desktop');
+
+    await waitFor(() =>
+      expect(screen.getByText(/read-only access to this team/)).toBeInTheDocument(),
+    );
+  });
+});
+
+describe('TeamUpdatePage submission validation (Missing draft)', () => {
+  it('blocks submission and shows a linked error summary when goals are empty', async () => {
+    const user = userEvent.setup();
+    const { getByLabelText } = renderWithProviders(<TeamUpdatePage />);
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument());
+
+    // mmm-b Week 2 is Missing -> an empty, editable draft.
+    await user.selectOptions(getByLabelText('Stream'), 'MMM');
+    await user.selectOptions(getByLabelText('Team'), 'mmm-b');
+    await user.selectOptions(getByLabelText('Current update'), '2');
+
+    // Wait until the empty Missing draft has loaded (business goal is cleared).
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: /Business goal/ })).toHaveValue(''),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Submit update' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'Submit update' }));
+
+    const heading = await screen.findByText(/Fix these before submitting/);
+    const summary = heading.closest('div') as HTMLElement;
+    expect(within(summary).getByText(/Business goal: This field is required\./)).toBeInTheDocument();
+    // Focus moves to the first invalid goal field.
+    expect(screen.getByRole('textbox', { name: /Business goal/ })).toHaveAttribute('aria-invalid', 'true');
+  });
+});
+
+describe('TeamUpdatePage conflict resolution', () => {
+  async function enterConflict(user: ReturnType<typeof userEvent.setup>) {
+    // mmm-b Week 1 draft is armed to conflict on the next save.
+    await user.selectOptions(screen.getByLabelText('Team', { exact: true }), 'mmm-b');
+    const businessGoal = screen.getByRole('textbox', { name: /Business goal/ });
+    await waitFor(() => expect(businessGoal).toBeEnabled());
+    await user.clear(businessGoal);
+    await user.type(businessGoal, 'My local edit that must not be silently overwritten.');
+    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    await screen.findByText(/Version conflict — choose how to resolve/);
+  }
+
+  it('shows a conflict panel and freezes writes (no silent overwrite)', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TeamUpdatePage />);
+    await waitForLoaded();
+    await enterConflict(user);
+
+    // Writing is frozen: Save and Submit are disabled; only explicit resolution remains.
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Submit update' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Use server version' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Keep my version/ })).toBeInTheDocument();
+  });
+
+  it('“Use server version” resets the form to the server document', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TeamUpdatePage />);
+    await waitForLoaded();
+    await enterConflict(user);
+
+    await user.click(screen.getByRole('button', { name: 'Use server version' }));
+    await waitFor(() =>
+      expect(screen.queryByText(/Version conflict/)).not.toBeInTheDocument(),
+    );
+    // The edited local text is gone; the server (seed) value is restored.
+    const businessGoal = screen.getByRole('textbox', { name: /Business goal/ }) as HTMLTextAreaElement;
+    expect(businessGoal.value).not.toContain('must not be silently overwritten');
+    expect(businessGoal.value).toMatch(/Enable the planned/);
+  });
+});
+
+describe('TeamUpdatePage save failure', () => {
+  it('never shows a success message after a failed save', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TeamUpdatePage />);
+    await waitForLoaded();
+    await user.selectOptions(screen.getByLabelText('Team', { exact: true }), 'mmm-b');
+    await user.selectOptions(screen.getByLabelText('Current update'), '2'); // Missing -> editable
+    const ask = screen.getByRole('textbox', { name: /Leadership ask/ });
+    await waitFor(() => expect(ask).toBeEnabled());
+    await user.type(ask, 'Please #failsave this one');
+    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+
+    await waitFor(() => expect(screen.getAllByText(/Save failed/).length).toBeGreaterThan(0));
+    expect(screen.queryByText(/Draft saved for this team/)).not.toBeInTheDocument();
+  });
+});
+
+describe('TeamUpdatePage load error', () => {
+  it('renders an error state with Retry when the update fails to load', async () => {
+    class FailingRepo extends MockRepository {
+      override async getUpdate(): Promise<never> {
+        throw new RepositoryError('SAVE_FAILED', 'boom');
+      }
+    }
+    renderWithProviders(<TeamUpdatePage />, { repository: new FailingRepo({ latencyMs: 0 }) });
+    expect(await screen.findByText(/This update could not be loaded/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+});
+
+describe('TeamUpdatePage role boundaries', () => {
+  it('disables Submit for a Contributor (edit only, cannot submit)', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TeamUpdatePage />, {
+      repository: new MockRepository({ latencyMs: 0, user: makeUser({ roles: ['CONTRIBUTOR'], assignedTeamIds: ['mmm-a'] }) }),
+    });
+    await waitForLoaded();
+    await user.selectOptions(screen.getByLabelText('Current update'), '2'); // mmm-a W2 draft
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: /Business goal/ })).toBeEnabled(),
+    );
+    expect(screen.getByRole('button', { name: 'Submit update' })).toBeDisabled();
+  });
+});
+
+describe('TeamUpdatePage explicit leadership ask', () => {
+  it('disables the ask text when “No leadership ask” is chosen', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TeamUpdatePage />);
+    await waitForLoaded();
+    await user.selectOptions(screen.getByLabelText('Team', { exact: true }), 'mmm-b');
+    await user.selectOptions(screen.getByLabelText('Current update'), '2');
+    const ask = screen.getByRole('textbox', { name: /Leadership ask/ });
+    await waitFor(() => expect(ask).toBeEnabled());
+    await user.click(screen.getByRole('checkbox', { name: /No leadership ask this week/ }));
+    expect(ask).toBeDisabled();
+  });
+});
+
+describe('TeamUpdatePage accessibility', () => {
+  it('has no axe violations on the loaded editable draft', async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithProviders(<TeamUpdatePage />);
+    await waitForLoaded();
+    await user.selectOptions(screen.getByLabelText('Current update'), '2'); // editable draft
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: /Business goal/ })).toBeEnabled(),
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});

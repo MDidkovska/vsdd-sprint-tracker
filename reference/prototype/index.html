@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="VSDD testing sprint status tracker prototype" />
+    <title>VSDD Sprint Tracker</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    <header class="app-header">
+      <div class="brand-lockup" aria-label="PTSB VSDD Sprint Tracker">
+        <img src="./assets/ptsb-logo.png" alt="ptsb" class="brand-logo" />
+        <span class="brand-divider" aria-hidden="true"></span>
+        <span class="product-name">VSDD Sprint Tracker</span>
+      </div>
+
+      <nav class="view-tabs" aria-label="Application views" role="tablist">
+        <button class="view-tab is-active" id="team-tab" role="tab" aria-selected="true" aria-controls="team-view" data-view="team">
+          Team Update
+        </button>
+        <button class="view-tab" id="leadership-tab" role="tab" aria-selected="false" aria-controls="leadership-view" data-view="leadership" tabindex="-1">
+          Leadership View
+        </button>
+      </nav>
+
+      <div class="header-actions">
+        <span class="prototype-badge">Interactive prototype</span>
+        <button class="icon-button" type="button" aria-label="Help" title="Help">?</button>
+        <button class="profile-button" type="button" aria-label="Open user menu">
+          <span aria-hidden="true">MD</span>
+          <span class="profile-label">Test Lead</span>
+        </button>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="app-view" id="team-view" role="tabpanel" aria-labelledby="team-tab">
+        <div class="page-heading team-heading">
+          <div>
+            <p class="context-line" id="team-breadcrumb">MMM / PTSB-VSDD MMM A / Sprint 14</p>
+            <h1>Sprint 14 · Week 1 update</h1>
+          </div>
+          <span class="save-state" id="top-save-state"><span class="save-state-dot" aria-hidden="true"></span>Draft saved locally</span>
+        </div>
+
+        <div class="team-shell">
+          <aside class="context-rail" aria-label="Update context">
+            <div class="rail-section">
+              <h2>Update context</h2>
+              <div class="context-fields">
+                <div>
+                  <label for="stream-select">Stream</label>
+                  <select id="stream-select"></select>
+                </div>
+                <div>
+                  <label for="team-select">Team</label>
+                  <select id="team-select"></select>
+                </div>
+                <div>
+                  <label for="sprint-select">Sprint</label>
+                  <select id="sprint-select">
+                    <option value="14">Sprint 14</option>
+                    <option value="15">Sprint 15</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="week-select">Current update</label>
+                  <select id="week-select">
+                    <option value="1">Week 1</option>
+                    <option value="2">Week 2</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="rail-section completeness-section" aria-labelledby="completeness-title">
+              <div class="section-title-row">
+                <h2 id="completeness-title">Update completeness</h2>
+                <span class="completion-count" id="completion-count">0/4</span>
+              </div>
+              <ul class="completion-list" id="completion-list">
+                <li data-complete-key="goals"><span class="completion-icon" aria-hidden="true">✓</span>Goals &amp; commitments</li>
+                <li data-complete-key="evidence"><span class="completion-icon" aria-hidden="true">✓</span>Quality evidence</li>
+                <li data-complete-key="ai"><span class="completion-icon" aria-hidden="true">✓</span>AI value</li>
+                <li data-complete-key="exceptions"><span class="completion-icon" aria-hidden="true">✓</span>Risks / issues / blockers</li>
+              </ul>
+            </div>
+
+            <div class="rail-note">
+              <strong>Reporting rule</strong>
+              <p>Outcome first. Use counts as evidence and record only actionable exceptions.</p>
+            </div>
+          </aside>
+
+          <form class="update-form" id="team-update-form" novalidate>
+            <fieldset class="status-panel">
+              <legend class="sr-only">Current RAG status</legend>
+              <div class="rag-field" data-rag-field="business">
+                <span class="rag-label">Business outcome</span>
+                <div class="rag-control" role="radiogroup" aria-label="Business outcome status"></div>
+              </div>
+              <div class="rag-field" data-rag-field="delivery">
+                <span class="rag-label">Test delivery</span>
+                <div class="rag-control" role="radiogroup" aria-label="Test delivery status"></div>
+              </div>
+              <div class="rag-field" data-rag-field="release">
+                <span class="rag-label">Release confidence</span>
+                <div class="rag-control" role="radiogroup" aria-label="Release confidence status"></div>
+              </div>
+            </fieldset>
+
+            <section class="form-section goals-section" aria-labelledby="goals-title">
+              <div class="section-heading">
+                <div>
+                  <h2 id="goals-title">Goals &amp; commitments</h2>
+                  <p>These four fields become the leadership summary.</p>
+                </div>
+                <span class="required-note">Required for submission</span>
+              </div>
+
+              <div class="goals-grid">
+                <div class="field-group">
+                  <label for="business-goal">Business goal</label>
+                  <textarea id="business-goal" name="businessGoal" rows="3" required></textarea>
+                  <span class="field-hint">Customer, operational or regulatory outcome enabled by this sprint.</span>
+                </div>
+                <div class="field-group">
+                  <label for="technical-goal">Technical / testing goal</label>
+                  <textarea id="technical-goal" name="technicalGoal" rows="3" required></textarea>
+                  <span class="field-hint">Capability, coverage or readiness objective.</span>
+                </div>
+                <div class="field-group">
+                  <label for="sprint-commitment">Sprint commitment</label>
+                  <textarea id="sprint-commitment" name="sprintCommitment" rows="3" required></textarea>
+                  <span class="field-hint">Specific evidence or result the team commits to deliver this sprint.</span>
+                </div>
+                <div class="field-group">
+                  <label for="next-week-commitment">Next week commitment</label>
+                  <textarea id="next-week-commitment" name="nextWeekCommitment" rows="3" required></textarea>
+                  <span class="field-hint">The next measurable step, not a list of activities.</span>
+                </div>
+              </div>
+            </section>
+
+            <div class="evidence-grid">
+              <section class="form-section evidence-section" aria-labelledby="evidence-title">
+                <div class="section-heading compact-heading">
+                  <div>
+                    <h2 id="evidence-title">Quality evidence</h2>
+                    <p>Current cumulative sprint position.</p>
+                  </div>
+                </div>
+                <div class="metrics-grid">
+                  <div class="field-group metric-field">
+                    <label for="planned">Planned</label>
+                    <input id="planned" name="planned" type="number" min="0" inputmode="numeric" />
+                  </div>
+                  <div class="field-group metric-field">
+                    <label for="executed">Executed</label>
+                    <input id="executed" name="executed" type="number" min="0" inputmode="numeric" />
+                  </div>
+                  <div class="field-group metric-field">
+                    <label for="passed">Passed</label>
+                    <input id="passed" name="passed" type="number" min="0" inputmode="numeric" />
+                  </div>
+                  <div class="field-group metric-field">
+                    <label for="critical">Open critical</label>
+                    <input id="critical" name="critical" type="number" min="0" inputmode="numeric" />
+                  </div>
+                  <div class="field-group metric-field">
+                    <label for="blocked">Blocked</label>
+                    <input id="blocked" name="blocked" type="number" min="0" inputmode="numeric" />
+                  </div>
+                  <div class="field-group metric-field metric-percent">
+                    <label for="automation">Automation</label>
+                    <div class="input-suffix"><input id="automation" name="automation" type="number" min="0" max="100" inputmode="numeric" /><span>%</span></div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="form-section achievements-section" aria-labelledby="achievements-title">
+                <div class="section-heading compact-heading">
+                  <div>
+                    <h2 id="achievements-title">Achievements this week</h2>
+                    <p>What changed against the weekly commitment?</p>
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label class="sr-only" for="achievements">Achievements this week</label>
+                  <textarea id="achievements" name="achievements" rows="8"></textarea>
+                </div>
+              </section>
+
+              <section class="form-section ai-section" aria-labelledby="ai-title">
+                <div class="section-heading compact-heading">
+                  <div>
+                    <h2 id="ai-title">AI value</h2>
+                    <p>Use case → benefit → validation → next step.</p>
+                  </div>
+                </div>
+                <div class="ai-fields">
+                  <div class="field-group inline-field">
+                    <label for="ai-use-case">Use case</label>
+                    <input id="ai-use-case" name="aiUseCase" type="text" />
+                  </div>
+                  <div class="field-group inline-field">
+                    <label for="ai-benefit">Measurable benefit</label>
+                    <input id="ai-benefit" name="aiBenefit" type="text" />
+                  </div>
+                  <div class="field-group inline-field">
+                    <label for="ai-validation">Human validation</label>
+                    <input id="ai-validation" name="aiValidation" type="text" />
+                  </div>
+                  <div class="field-group inline-field">
+                    <label for="ai-next">Next experiment / constraint</label>
+                    <input id="ai-next" name="aiNext" type="text" />
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <section class="form-section exceptions-section" aria-labelledby="exceptions-title">
+              <div class="section-heading">
+                <div>
+                  <h2 id="exceptions-title">Risks · Issues · Blockers</h2>
+                  <p><strong>Risk</strong> may affect delivery. <strong>Issue</strong> already affects it. <strong>Blocker</strong> stopped specific work.</p>
+                </div>
+                <button class="secondary-button small-button" id="add-exception" type="button">+ Add item</button>
+              </div>
+
+              <div class="table-wrap">
+                <table class="editable-table" aria-label="Risks, issues and blockers">
+                  <thead>
+                    <tr>
+                      <th scope="col">Type</th>
+                      <th scope="col">Business / release impact</th>
+                      <th scope="col">Owner</th>
+                      <th scope="col">Due date</th>
+                      <th scope="col">Decision / support needed</th>
+                      <th scope="col"><span class="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody id="exception-editor-body"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="leadership-ask-section" aria-labelledby="leadership-ask-title">
+              <div>
+                <h2 id="leadership-ask-title">Leadership ask</h2>
+                <p>One decision, escalation or resource required this week — or “None”.</p>
+              </div>
+              <label class="sr-only" for="leadership-ask">Leadership ask</label>
+              <textarea id="leadership-ask" name="leadershipAsk" rows="2"></textarea>
+            </section>
+
+            <div class="form-action-bar">
+              <span class="save-state" id="bottom-save-state"><span class="save-state-dot" aria-hidden="true"></span>Draft saved locally</span>
+              <div class="action-buttons">
+                <button class="secondary-button" type="button" id="save-draft">Save draft</button>
+                <button class="primary-button" type="submit" id="submit-update">Submit update</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="app-view" id="leadership-view" role="tabpanel" aria-labelledby="leadership-tab" hidden>
+        <div class="page-heading leadership-heading">
+          <div>
+            <p class="context-line">VSDD programme · Current reporting cycle</p>
+            <h1 id="leadership-page-title">Sprint 14 · Week 1</h1>
+          </div>
+          <div class="leadership-controls" aria-label="Leadership filters">
+            <label class="compact-select">Stream <select id="leadership-stream-filter"></select></label>
+            <label class="compact-select">Status
+              <select id="leadership-status-filter">
+                <option value="all">All</option>
+                <option value="Green">Green</option>
+                <option value="Amber">Amber</option>
+                <option value="Red">Red</option>
+              </select>
+            </label>
+            <label class="compact-select">Update state
+              <select id="leadership-state-filter">
+                <option value="all">All</option>
+                <option value="Submitted">Submitted</option>
+                <option value="Draft">Draft</option>
+                <option value="Missing">Missing</option>
+              </select>
+            </label>
+            <button class="secondary-button" type="button" id="export-snapshot">Export snapshot</button>
+          </div>
+        </div>
+
+        <div class="programme-summary" aria-label="Programme reporting summary">
+          <div><span class="summary-icon" aria-hidden="true">◎</span><strong id="summary-teams">8</strong><span>teams</span></div>
+          <div><span class="summary-icon success" aria-hidden="true">✓</span><strong id="summary-submitted">6</strong><span>submitted</span></div>
+          <div><span class="summary-icon info" aria-hidden="true">◌</span><strong id="summary-drafts">2</strong><span>drafts</span></div>
+          <div><span class="summary-icon ask" aria-hidden="true">⚑</span><strong id="summary-asks">3</strong><span>leadership asks</span></div>
+        </div>
+
+        <div class="leadership-shell">
+          <aside class="hierarchy-panel" aria-label="Programme hierarchy">
+            <div class="tree-header">
+              <strong>VSDD</strong>
+              <span class="rag-key" aria-label="B is business outcome, T is test delivery, R is release confidence"><span>B</span><span>T</span><span>R</span><span>Update state</span></span>
+            </div>
+            <div class="hierarchy-tree" id="hierarchy-tree"></div>
+          </aside>
+
+          <article class="leadership-detail" id="leadership-detail" aria-live="polite"></article>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

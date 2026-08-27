@@ -1,0 +1,25 @@
+.region {
+  position: fixed;
+  right: var(--space-lg);
+  bottom: var(--space-lg);
+  z-index: var(--z-toast);
+  display: grid;
+  gap: var(--space-sm);
+  width: min(24rem, calc(100vw - 2rem));
+}
+
+.toast {
+  padding: var(--space-md);
+  color: var(--surface);
+  background: var(--ink);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.error {
+  background: var(--red);
+}
+
+.success {
+  background: var(--green-ink);
+}
