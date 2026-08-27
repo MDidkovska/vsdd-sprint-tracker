@@ -12,16 +12,25 @@
  *    overwrites nothing;
  *  - submitted versions and audit events are append-only and immutable.
  *
- * Business operations (hierarchy reads, submit orchestration, reopen, leadership
- * projections, export …) are deliberately NOT part of this PoC contract — they
- * are later tasks (7.3–7.11). This interface is the storage primitive those
- * endpoints will be built on.
+ * Task 7.3 adds the read-only reference/config primitives (programme hierarchy
+ * and reporting cycle) plus an idempotent reference seed. The remaining business
+ * operations (submit orchestration, reopen, leadership projections, export …)
+ * are still deliberately NOT part of this contract — they are later tasks
+ * (7.4–7.11). This interface is the storage primitive those endpoints build on.
  */
 import type {
   AuditEvent,
   UpdateDocument,
   UpdateVersion,
 } from '../domain/documents.js';
+import type {
+  Programme,
+  ReportingCheckpoint,
+  Sprint,
+  Stream,
+  Team,
+} from '../domain/hierarchy.js';
+import type { ReferenceData } from '../reference/referenceData.js';
 
 /**
  * Result of an optimistic write. On conflict the store returns its current
@@ -57,6 +66,32 @@ export interface DocumentRepository {
    * `/ready` endpoint — never touches business data.
    */
   ping(): Promise<boolean>;
+
+  // --- reference / config reads (design.md §4a, task 7.3) ------------------
+
+  /**
+   * Idempotently write the reference/config dataset (programme, streams, teams,
+   * sprints, checkpoints). Re-running is safe — existing documents are upserted
+   * by their stable id, never duplicated. Used on startup and in tests.
+   */
+  seedReferenceData(data: ReferenceData): Promise<void>;
+
+  /** Read a programme by id, or null when it does not exist. */
+  getProgramme(programmeId: string): Promise<Programme | null>;
+
+  /** List a programme's streams (caller decides ordering/filtering). */
+  listStreams(programmeId: string): Promise<Stream[]>;
+
+  /** List a programme's teams across all of its streams. */
+  listTeams(programmeId: string): Promise<Team[]>;
+
+  /** List a programme's sprints (the reporting cycle). */
+  listSprints(programmeId: string): Promise<Sprint[]>;
+
+  /** List the reporting checkpoints (Week 1 / Week 2) for a sprint. */
+  listCheckpoints(sprintId: string): Promise<ReportingCheckpoint[]>;
+
+  // --- update aggregate + append-only stores -------------------------------
 
   /** Read the current mutable draft aggregate by its deterministic id. */
   getDraft(id: string): Promise<UpdateDocument | null>;

@@ -103,6 +103,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Sprint'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':

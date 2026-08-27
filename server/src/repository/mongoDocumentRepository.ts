@@ -17,12 +17,26 @@
  * document per id. We let MongoDB manage its physical `_id` and strip it on the
  * way out so stored documents map 1:1 to the frontend domain shapes.
  */
-import { MongoClient, type Collection, type Db, type Document } from 'mongodb';
+import {
+  MongoClient,
+  type AnyBulkWriteOperation,
+  type Collection,
+  type Db,
+  type Document,
+} from 'mongodb';
 import type {
   AuditEvent,
   UpdateDocument,
   UpdateVersion,
 } from '../domain/documents.js';
+import type {
+  Programme,
+  ReportingCheckpoint,
+  Sprint,
+  Stream,
+  Team,
+} from '../domain/hierarchy.js';
+import type { ReferenceData } from '../reference/referenceData.js';
 import type {
   DocumentRepository,
   SaveDraftInput,
@@ -39,6 +53,12 @@ const COLLECTIONS = {
   updates: 'updates',
   updateVersions: 'updateVersions',
   auditEvents: 'auditEvents',
+  // Reference/config collections (design.md §4a).
+  programmes: 'programmes',
+  streams: 'streams',
+  teams: 'teams',
+  sprints: 'sprints',
+  checkpoints: 'checkpoints',
 } as const;
 
 /** MongoDB duplicate-key error code. */
@@ -96,6 +116,26 @@ export class MongoDocumentRepository implements DocumentRepository {
     return this.db.collection<AuditEvent>(COLLECTIONS.auditEvents);
   }
 
+  private get programmes(): Collection<Programme> {
+    return this.db.collection<Programme>(COLLECTIONS.programmes);
+  }
+
+  private get streams(): Collection<Stream> {
+    return this.db.collection<Stream>(COLLECTIONS.streams);
+  }
+
+  private get teams(): Collection<Team> {
+    return this.db.collection<Team>(COLLECTIONS.teams);
+  }
+
+  private get sprints(): Collection<Sprint> {
+    return this.db.collection<Sprint>(COLLECTIONS.sprints);
+  }
+
+  private get checkpoints(): Collection<ReportingCheckpoint> {
+    return this.db.collection<ReportingCheckpoint>(COLLECTIONS.checkpoints);
+  }
+
   /**
    * Create the stable-envelope indexes. The unique `id` index is what enforces
    * at-most-one draft per aggregate and append-only immutability for versions
@@ -119,11 +159,103 @@ export class MongoDocumentRepository implements DocumentRepository {
       { entityId: 1, timestamp: 1 },
       { name: 'ix_audit_entity' },
     );
+
+    // Reference/config collections: unique id plus the natural lookup keys.
+    await this.programmes.createIndex({ id: 1 }, { unique: true, name: 'uq_programme_id' });
+    await this.streams.createIndex({ id: 1 }, { unique: true, name: 'uq_stream_id' });
+    await this.streams.createIndex(
+      { programmeId: 1, sortOrder: 1 },
+      { name: 'ix_stream_programme' },
+    );
+    await this.teams.createIndex({ id: 1 }, { unique: true, name: 'uq_team_id' });
+    await this.teams.createIndex(
+      { streamId: 1, sortOrder: 1 },
+      { name: 'ix_team_stream' },
+    );
+    await this.sprints.createIndex({ id: 1 }, { unique: true, name: 'uq_sprint_id' });
+    await this.sprints.createIndex(
+      { programmeId: 1, startDate: 1 },
+      { name: 'ix_sprint_programme' },
+    );
+    await this.checkpoints.createIndex({ id: 1 }, { unique: true, name: 'uq_checkpoint_id' });
+    await this.checkpoints.createIndex(
+      { sprintId: 1, weekNumber: 1 },
+      { name: 'ix_checkpoint_sprint' },
+    );
   }
 
   async ping(): Promise<boolean> {
     const result = await this.db.command({ ping: 1 });
     return result?.ok === 1;
+  }
+
+  // --- reference / config reads (design.md §4a, task 7.3) ------------------
+
+  async seedReferenceData(data: ReferenceData): Promise<void> {
+    // Idempotent upsert by stable id — safe to run on every startup.
+    const upsert = async <T extends { id: string }>(
+      collection: Collection<T>,
+      docs: T[],
+    ): Promise<void> => {
+      if (docs.length === 0) return;
+      // The generic `id` filter is safe here (every reference doc is keyed by
+      // its stable `id`); the cast bridges the driver's structural Filter type.
+      const operations = docs.map((doc) => ({
+        replaceOne: {
+          filter: { id: doc.id },
+          replacement: doc,
+          upsert: true,
+        },
+      })) as unknown as AnyBulkWriteOperation<T>[];
+      await collection.bulkWrite(operations, { ordered: false });
+    };
+
+    await upsert(this.programmes, data.programmes);
+    await upsert(this.streams, data.streams);
+    await upsert(this.teams, data.teams);
+    await upsert(this.sprints, data.sprints);
+    await upsert(this.checkpoints, data.checkpoints);
+  }
+
+  async getProgramme(programmeId: string): Promise<Programme | null> {
+    const raw = await this.programmes.findOne({ id: programmeId });
+    return raw ? (stripId(raw) as Programme) : null;
+  }
+
+  async listStreams(programmeId: string): Promise<Stream[]> {
+    const raw = await this.streams
+      .find({ programmeId })
+      .sort({ sortOrder: 1 })
+      .toArray();
+    return raw.map((doc) => stripId(doc) as Stream);
+  }
+
+  async listTeams(programmeId: string): Promise<Team[]> {
+    // Teams reference their stream; resolve the programme's stream ids first so
+    // the query stays vendor-neutral (no $lookup / join semantics leak out).
+    const streamIds = (await this.listStreams(programmeId)).map((s) => s.id);
+    if (streamIds.length === 0) return [];
+    const raw = await this.teams
+      .find({ streamId: { $in: streamIds } })
+      .sort({ sortOrder: 1 })
+      .toArray();
+    return raw.map((doc) => stripId(doc) as Team);
+  }
+
+  async listSprints(programmeId: string): Promise<Sprint[]> {
+    const raw = await this.sprints
+      .find({ programmeId })
+      .sort({ startDate: 1 })
+      .toArray();
+    return raw.map((doc) => stripId(doc) as Sprint);
+  }
+
+  async listCheckpoints(sprintId: string): Promise<ReportingCheckpoint[]> {
+    const raw = await this.checkpoints
+      .find({ sprintId })
+      .sort({ weekNumber: 1 })
+      .toArray();
+    return raw.map((doc) => stripId(doc) as ReportingCheckpoint);
   }
 
   async getDraft(id: string): Promise<UpdateDocument | null> {

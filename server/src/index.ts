@@ -7,9 +7,12 @@
  *
  * Graceful shutdown closes the HTTP server and the Mongo connection pool.
  */
+import { mockAuthContext } from './auth/mockAuth.js';
 import { loadConfig } from './config.js';
+import { buildReferenceData } from './reference/referenceData.js';
 import { MongoDocumentRepository } from './repository/mongoDocumentRepository.js';
 import { buildServer } from './server.js';
+import { HierarchyService } from './services/hierarchyService.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -19,8 +22,15 @@ async function main(): Promise<void> {
     dbName: config.mongoDb,
   });
 
+  // Seed the reference/config dataset (hierarchy + reporting cycle). Idempotent,
+  // so restarts never duplicate documents (design.md §4a).
+  await repository.seedReferenceData(buildReferenceData());
+
+  // Authentication is mocked for the local PoC (design.md §4b, Phase 8 later).
+  const hierarchy = new HierarchyService(repository, mockAuthContext);
+
   const app = buildServer(
-    { checkReadiness: () => repository.ping() },
+    { checkReadiness: () => repository.ping(), hierarchy },
     { logLevel: config.logLevel },
   );
 
