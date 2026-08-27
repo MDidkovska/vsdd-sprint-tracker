@@ -87,6 +87,7 @@ Tasks are ordered. Do not begin production persistence before the approved UI be
 
 - [x] 7.1 Define OpenAPI 3.1 schemas matching the frontend domain types.
 - [x] 7.2 Define document collections/containers, stable query fields, indexes, partition/shard strategy, schema-version compatibility, retention and immutable audit storage for hierarchy, assignments, checkpoints, drafts, versions, exceptions, decisions and audit events. (Document-oriented, vendor-neutral — no relational migrations.)
+- [ ] 7.2a Scaffold the local Node.js/TypeScript/Fastify backend and MongoDB document adapter, including Docker Compose, environment example, health/readiness checks and persistence integration tests. Do not implement business API endpoints or authentication.
 - [ ] 7.3 Implement programme hierarchy and reporting-cycle read endpoints.
 - [ ] 7.4 Implement team draft read/write with optimistic concurrency revision.
 - [ ] 7.5 Implement atomic submit that creates immutable version plus audit event.

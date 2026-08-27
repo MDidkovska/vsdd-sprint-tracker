@@ -165,6 +165,23 @@ Partition/shard key preference: `programmeId` (with `teamId` as a natural sub-ke
 - Submission-snapshot creation and audit-event creation must be atomic within the guarantees of the selected document store (e.g. a transactional batch/transaction within a single partition).
 - Flexible storage does not mean unvalidated data: application validation stays explicit through TypeScript/Zod and the API schema regardless of the store.
 
+## 4b. Local PoC architecture decision (proof of concept only)
+
+The following decision fixes the concrete stack used to build and run the persistence proof of concept **locally**. It is a PoC implementation choice, not a production or PTSB platform commitment. The enterprise constraints in §2 (and task 0.2) remain open.
+
+- **Backend:** Node.js 24 LTS with TypeScript and Fastify.
+- **Document database:** a local MongoDB instance started through Docker Compose.
+- **MongoDB is a PoC choice only.** It is not a production or PTSB platform commitment and does not pre-empt the approved-database decision.
+- **Vendor-neutral boundary:** all persistence stays behind a vendor-neutral document repository adapter (the same repository contract used by the Phase A mock). MongoDB-specific code lives only inside that adapter; the domain and API layers never depend on it.
+- **Schema versioning:** stored documents retain `schemaVersion` and are read through the read-time upcasting defined in §4a. No bulk rewrites.
+- **Draft writes:** use optimistic concurrency via the `revision`/ETag guard defined in §4a; a stale revision returns `409` and overwrites nothing.
+- **Immutability:** submitted versions and audit events remain immutable / append-only.
+- **Authentication:** remains mocked for the local PoC. Production enterprise OIDC integration is Phase 8.
+
+### Still-unresolved enterprise constraints
+
+Production hosting, the OIDC provider and the approved database vendor remain **unresolved enterprise constraints** (see §2 and task 0.2). The local PoC choices above must not be read as resolving them.
+
 ## 5. Update state machine
 
 ```mermaid
