@@ -171,7 +171,7 @@ broader operation remain Phase B. Tasks 11.2–11.6 are **HUMAN EVIDENCE
 REQUIRED** — they depend on real pilot evidence from people, a shared multi-user
 environment and Leadership, and Kiro must not mark them complete automatically.
 
-- [ ] 11.1 Prepare an idempotent pilot configuration/import with dry-run validation covering all streams, all eight teams, accounts, roles, assignments, and one two-week sprint with Week 1 and Week 2 checkpoints. Dry-run validation reports what would change before any write, and re-running the import must not duplicate or silently overwrite existing records. Teams:
+- [x] 11.1 Prepare an idempotent pilot configuration/import with dry-run validation covering all streams, all eight teams, accounts, roles, assignments, and one two-week sprint with Week 1 and Week 2 checkpoints. Dry-run validation reports what would change before any write, and re-running the import must not duplicate or silently overwrite existing records. Teams:
   - MMM: PTSB-VSDD MMM A, PTSB-VSDD MMM B
   - OAH: PTSB-VSDD OAH ILS, PTSB-VSDD OAH Sales
   - GRMB: PTSB-VSDD GRMB

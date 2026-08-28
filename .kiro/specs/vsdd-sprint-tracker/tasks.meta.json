@@ -257,6 +257,18 @@
         "chatSessionId": "sess_575b4887-2fd7-4cc0-b6fd-ec36b2fdd14f",
         "timestamp": 1787874762038
       }
+    ],
+    "11.1 Prepare an idempotent pilot configuration/import with dry-run validation covering all streams, all eight teams, accounts, roles, assignments, and one two-week sprint with Week 1 and Week 2 checkpoints. Dry-run validation reports what would change before any write, and re-running the import must not duplicate or silently overwrite existing records. Teams:": [
+      {
+        "executionId": "83384dd5-65c6-4bf9-bca7-d4b93b17b386",
+        "chatSessionId": "sess_e4d58193-0ca2-4157-a23d-5f8807cd23ef",
+        "timestamp": 1787875584128
+      },
+      {
+        "executionId": "83384dd5-65c6-4bf9-bca7-d4b93b17b386",
+        "chatSessionId": "sess_e4d58193-0ca2-4157-a23d-5f8807cd23ef",
+        "timestamp": 1787876360988
+      }
     ]
   }
 }
