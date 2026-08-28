@@ -679,6 +679,26 @@ database and hosting decisions: production-scale load testing, an enterprise
 observability platform, Edge/Firefox certification, formal penetration testing and
 a full enterprise threat-model and security approval.
 
+### Controlled PoC pilot scope (Phase 11)
+
+Phase 11 runs a single **controlled proof-of-concept pilot** across **all eight
+VSDD teams** (MMM, OAH, GRMB, O24 and Visa streams), in parallel with the
+existing weekly deck. It is **not** a production rollout and does not make the PoC
+production-ready. The pilot starts from an idempotent, dry-run-validated
+configuration/import (streams, teams, accounts, roles, assignments and one
+two-week sprint with Week 1 and Week 2 checkpoints) on a **shared multi-user
+environment** — a lack of that shared environment is a blocker, and
+single-machine validation does not count as a multi-user pilot. The pilot runs
+one complete two-week sprint, compares tracker output with the weekly deck across
+every stream, collects structured feedback from every team plus Leadership,
+triages findings, implements only agreed fixes and obtains PoC
+product/accessibility sign-off. Because it depends on real people, a shared
+environment and Leadership evidence, the pilot, its weekly checkpoints and the
+steady-state handover are **human-evidence gated** and are not marked complete
+automatically. Formal production security approval, broader operation and the
+actual production rollout remain **Phase B**, dependent on an approved hosting
+decision (task 0.2).
+
 ## 14. Test strategy
 
 ### Unit
@@ -741,4 +761,4 @@ a full enterprise threat-model and security approval.
 4. Implement the server API and document-store containers/collections (see §4a); no relational migration step is implied.
 5. Swap the mock adapter for the real API behind the same query hooks.
 6. Add local-account authentication/RBAC (behind interfaces that a future OIDC provider can replace), audit, notifications and export.
-7. Run the acceptance and security suites before pilot rollout.
+7. Run the acceptance and security suites before the controlled PoC pilot; the pilot itself runs across all eight teams with the weekly deck kept in parallel (Phase 11).

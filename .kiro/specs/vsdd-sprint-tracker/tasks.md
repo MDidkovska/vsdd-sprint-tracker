@@ -161,14 +161,38 @@ PoC as production-ready.
 - [x] 10.5 Run lightweight UI checks: an automated WCAG 2.2 AA scan, a manual keyboard smoke test, visual regression at 1440×1000 and 390×844, with Chrome as the supported browser and Safari smoke-tested only. (Edge/Firefox certification is deferred to Phase B.)
 - [x] 10.6 Produce PoC readiness evidence: a local benchmark for 8 teams plus a 2× growth margin, basic latency and error counters derived from the existing structured logs, and a concise security / residual-risk checklist. (Production-scale load testing, enterprise observability, formal penetration testing and full enterprise threat-model/security approval are deferred to Phase B.)
 
-## Phase 11 — Pilot and release
+## Phase 11 — Controlled PoC pilot (all eight VSDD teams)
 
-- [ ] 11.1 Import/configure the initial VSDD hierarchy and assignments.
-- [ ] 11.2 Pilot with one stream for a complete two-week sprint.
-- [ ] 11.3 Compare the application output with the existing weekly deck for completeness and decision usefulness.
-- [ ] 11.4 Capture user friction, missing fields and false-confidence risks.
-- [ ] 11.5 Resolve pilot findings and obtain product/security/accessibility approval.
-- [ ] 11.6 Roll out to all eight teams with an agreed support and ownership model.
+Phase 11 runs a single **controlled proof-of-concept pilot** across all eight
+VSDD teams, in parallel with the existing weekly deck. It is **not** a production
+rollout and does not make the PoC production-ready: formal production security
+approval, the OIDC / production-database / hosting decisions (task 0.2) and
+broader operation remain Phase B. Tasks 11.2–11.6 are **HUMAN EVIDENCE
+REQUIRED** — they depend on real pilot evidence from people, a shared multi-user
+environment and Leadership, and Kiro must not mark them complete automatically.
+
+- [ ] 11.1 Prepare an idempotent pilot configuration/import with dry-run validation covering all streams, all eight teams, accounts, roles, assignments, and one two-week sprint with Week 1 and Week 2 checkpoints. Dry-run validation reports what would change before any write, and re-running the import must not duplicate or silently overwrite existing records. Teams:
+  - MMM: PTSB-VSDD MMM A, PTSB-VSDD MMM B
+  - OAH: PTSB-VSDD OAH ILS, PTSB-VSDD OAH Sales
+  - GRMB: PTSB-VSDD GRMB
+  - O24: PTSB-VSDD O24 App Modernization, PTSB-VSDD O24 Desktop Sunset
+  - Visa: VIS-PMNT
+- [ ] 11.2 **HUMAN EVIDENCE REQUIRED** — Establish a shared pilot environment accessible to all eight teams. Treat the lack of a shared, multi-user environment as a blocker; single-machine validation must not be described or accepted as a multi-user pilot.
+- [ ] 11.3 **HUMAN EVIDENCE REQUIRED** — Run one complete two-week controlled pilot with all eight teams while keeping the existing weekly deck in parallel. Week 1 and Week 2 completion each require real evidence; Kiro must not mark this task complete automatically.
+- [ ] 11.4 **HUMAN EVIDENCE REQUIRED** — Compare tracker output with the weekly deck across every stream and collect structured feedback from every team plus Leadership: completeness, decision usefulness, friction, missing fields, discrepancies and false-confidence risks.
+- [ ] 11.5 **HUMAN EVIDENCE REQUIRED** — Triage findings, implement only agreed fixes, rerun affected acceptance checks and obtain PoC product/accessibility sign-off. Formal production security approval is deferred to Phase B.
+- [ ] 11.6 **HUMAN EVIDENCE REQUIRED** — Produce the steady-state handover and go/no-go evidence: named product owner, admin, support route, reporting cadence, runbook, unresolved risks and a recommendation for broader operation. Actual production rollout remains dependent on an approved hosting decision.
+
+### Pilot success criteria
+
+- 8/8 teams correctly configured and assigned.
+- 8/8 teams report both Week 1 and Week 2.
+- Complete Leadership roll-up.
+- No silent overwrite or evidence-state confusion.
+- Risks / Issues / Blockers and commitments remain decision-useful.
+- Tracker/deck discrepancies recorded.
+- Feedback captured from all teams.
+- Named ownership and support model.
 
 ## Final acceptance checklist
 
