@@ -159,7 +159,7 @@ PoC as production-ready.
 - [x] 10.3 Apply minimal abuse protection to login, registration and export: rate limiting plus generic responses that prevent account or programme-data enumeration.
 - [x] 10.4 Verify draft recovery after a temporary network interruption, a revision conflict or a failed autosave, with no silent data loss (unsaved content stays available for retry).
 - [x] 10.5 Run lightweight UI checks: an automated WCAG 2.2 AA scan, a manual keyboard smoke test, visual regression at 1440×1000 and 390×844, with Chrome as the supported browser and Safari smoke-tested only. (Edge/Firefox certification is deferred to Phase B.)
-- [ ] 10.6 Produce PoC readiness evidence: a local benchmark for 8 teams plus a 2× growth margin, basic latency and error counters derived from the existing structured logs, and a concise security / residual-risk checklist. (Production-scale load testing, enterprise observability, formal penetration testing and full enterprise threat-model/security approval are deferred to Phase B.)
+- [x] 10.6 Produce PoC readiness evidence: a local benchmark for 8 teams plus a 2× growth margin, basic latency and error counters derived from the existing structured logs, and a concise security / residual-risk checklist. (Production-scale load testing, enterprise observability, formal penetration testing and full enterprise threat-model/security approval are deferred to Phase B.)
 
 ## Phase 11 — Pilot and release
 
